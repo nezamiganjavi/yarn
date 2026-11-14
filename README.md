@@ -8,6 +8,8 @@ A roomy, card-based home screen for Obsidian, built for phones:
 - **Colours and wallpapers.** Long-press a card (or right-click it on desktop) to open the sheet. It offers 11 colours, each with light and dark versions, 9 built-in wallpapers, and the option to use any image from your vault as a wallpaper.
 - **Pin notes.** Long-press a card and tap **Pin**. Pinned notes stay at the top under "Pinned", and everything else goes under "Others".
 - **Hide Obsidian's toolbars.** The ⤢ button in the search bar hides Obsidian's top header and bottom bar while the board is open. Tap it again to bring them back.
+- **Tags.** A note's tags (from properties or inline `#tags`) show as one row of chips at the bottom of its card. Tap a chip, or type `#Stories` in the search bar, to see only notes with that tag. Nested tags such as `#Stories/Lalka` count too. Lines that contain only tags are left out of the preview, since the chips already show them.
+- **Hidden placeholder titles.** Titles like "Untitled 3", or timestamp names that importers give title-less notes (e.g. `2026-11-09T07_08_55.452-05_00`), are hidden on cards. Plain dates like `2026-11-13` still show.
 - **Checklists and images in previews.** `- [ ]` tasks show as checkboxes, and the first image embedded in a note appears at the top of its card.
 - **Replaces the landing page.** The board opens when Obsidian starts (you can turn this off in settings). Notes open in the same tab, so Back returns you to the board, and the board tries to restore your scroll position and search.
 
@@ -16,7 +18,7 @@ A roomy, card-based home screen for Obsidian, built for phones:
 The same plugin works on desktop, and the phone layout is unchanged:
 
 - Cards get a fixed, roomier width and the grid is centred, like Keep on the web.
-- Hover a card to see a **pin** button (top right) and a **colour** button (bottom right). Right-click a card to open the full menu, which appears as a centred dialog.
+- Hover a card to see **colour** and **pin** buttons in its top-right corner. The title wraps around them, so they never cover text. Right-click a card to open the full menu, which appears as a centred dialog.
 - **Ctrl/Cmd-click** or **middle-click** a card to open the note in a new tab.
 - At startup, Yarn never replaces a note you have open. It reuses an empty tab or opens its own.
 - The ⤢ button hides the board's header and collapses both sidebars. Press it again to bring back the sidebars that were open.

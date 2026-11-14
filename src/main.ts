@@ -12,6 +12,7 @@ import {
 	ViewStateResult,
 	WorkspaceLeaf,
 	debounce,
+	getAllTags,
 	normalizePath,
 	setIcon,
 } from "obsidian";
@@ -248,6 +249,17 @@ export default class YarnPlugin extends Plugin {
 		return f instanceof TFile ? f : null;
 	}
 
+	getTags(id: string): string[] {
+		const f = this.file(id);
+		const cache = f ? this.app.metadataCache.getFileCache(f) : null;
+		const seen = new Map<string, string>();
+		for (const t of (cache && getAllTags(cache)) ?? []) {
+			const tag = t.replace(/^#/, "");
+			if (tag && !seen.has(tag.toLowerCase())) seen.set(tag.toLowerCase(), tag);
+		}
+		return [...seen.values()];
+	}
+
 	getStyle(id: string): NoteStyle {
 		const f = this.file(id);
 		const fm = f ? this.app.metadataCache.getFileCache(f)?.frontmatter : undefined;
@@ -346,6 +358,7 @@ class YarnView extends ItemView {
 				return f ? this.app.vault.cachedRead(f) : "";
 			},
 			getStyle: (id) => p.getStyle(id),
+			getTags: (id) => p.getTags(id),
 			setStyle: (id, patch) => p.setStyle(id, patch),
 			resolveImage: (link, src) => p.resolveImage(link, src),
 			open: (id, newTab) => {

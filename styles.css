@@ -647,64 +647,94 @@ body.yarn-chrome-hidden .yarn-root .yarn-header {
 	outline: none;
 }
 
-/* Hover tools: only for mouse/trackpad, never on touch screens. */
-.yarn-root .yarn-card-tool {
+/* Hover tools: only for mouse/trackpad, never on touch screens (no space reserved there). */
+.yarn-root .yarn-card-tools {
 	display: none;
 }
 
 @media (hover: hover) and (pointer: fine) {
+	/* Floated top-right: the title / first line wraps around it, so it never covers text. */
+	.yarn-root .yarn-card-tools {
+		display: flex;
+		float: right;
+		gap: 0;
+		margin: -6px -9px -8px 4px;
+		opacity: 0;
+		transition: opacity 120ms ease;
+	}
+
+	.yarn-card:hover .yarn-card-tools,
+	.yarn-card:focus-within .yarn-card-tools {
+		opacity: 1;
+	}
+
+	.yarn-card.is-pinned .yarn-card-tools {
+		opacity: 1;
+	}
+
+	.yarn-card.is-pinned:not(:hover) .yarn-card-palette {
+		visibility: hidden;
+	}
+
 	.yarn-root .yarn-card-tool {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		position: absolute;
-		z-index: 1;
-		width: 30px;
-		height: 30px;
+		width: 28px;
+		height: 28px;
 		padding: 0;
 		border: none;
 		border-radius: 50%;
 		background: transparent;
 		box-shadow: none;
 		color: var(--yarn-ink);
-		opacity: 0;
+		opacity: 0.6;
 		cursor: pointer;
 		transition: opacity 120ms ease, background 120ms ease;
 	}
 
 	.yarn-card-tool svg {
-		width: 17px;
-		height: 17px;
-	}
-
-	.yarn-root .yarn-card-pin {
-		top: 8px;
-		right: 8px;
-	}
-
-	.yarn-root .yarn-card-palette {
-		bottom: 8px;
-		right: 8px;
-	}
-
-	.yarn-card:hover .yarn-card-tool,
-	.yarn-card:focus-within .yarn-card-tool {
-		opacity: 0.7;
+		width: 16px;
+		height: 16px;
 	}
 
 	.yarn-root .yarn-card-tool:hover {
 		opacity: 1;
 		background: rgba(127, 127, 127, 0.18);
 	}
+}
 
-	.yarn-card.is-pinned .yarn-card-pin {
-		opacity: 0.55;
-	}
+/* ---------- tags ---------- */
 
-	/* Leave room so the pin never covers the title. */
-	.yarn-card-title {
-		padding-right: 18px;
-	}
+.yarn-card-tags {
+	display: flex;
+	gap: 6px;
+	margin-top: 12px;
+	overflow: hidden;
+	flex-wrap: nowrap;
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+	mask-image: linear-gradient(to right, #000 calc(100% - 16px), transparent);
+}
+
+.yarn-root .yarn-tag {
+	flex: none;
+	height: auto;
+	padding: 3px 10px;
+	border: none;
+	border-radius: 8px;
+	background: rgba(127, 127, 127, 0.16);
+	box-shadow: none;
+	color: var(--yarn-ink);
+	font-family: inherit;
+	font-size: 0.78em;
+	line-height: 1.4;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.yarn-root .yarn-tag:active,
+.yarn-root .yarn-tag:hover {
+	background: rgba(127, 127, 127, 0.28);
 }
 
 .yarn-root.is-wide .yarn-sheet-handle {

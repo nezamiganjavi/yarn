@@ -89,6 +89,8 @@ export function buildPreview(md: string, title: string, maxLines = 10): Preview 
 			item = { kind: "heading", text: t };
 		} else if (bullet) item = { kind: "bullet", text: inlinePlain(bullet[1]) };
 		else if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) continue;
+		// A line that is only #tags is shown as chips at the bottom of the card instead.
+		else if (/^\s*(#[^\s#]+\s*)+$/.test(line) && !/^\s*#{1,6}\s/.test(line)) continue;
 		else item = { kind: "text", text: inlinePlain(line.replace(/^\s*>\s?/, "")) };
 		if (!item.text) continue;
 		// Keep consecutive paragraph lines in one block, preserving their line breaks.
@@ -102,5 +104,8 @@ export function buildPreview(md: string, title: string, maxLines = 10): Preview 
 
 /** Obsidian-style default names ("Untitled", "Untitled 3") are hidden on cards, like a blank title. */
 export function isPlaceholderTitle(title: string): boolean {
-	return /^untitled( \d+)?$/i.test(title.trim());
+	const t = title.trim();
+	// "Untitled", "Untitled 3", or a bare timestamp name that importers give title-less notes,
+	// e.g. "2026-11-09T07_08_55.452-05_00". Plain dates like "2026-11-13" still show.
+	return /^untitled( \d+)?$/i.test(t) || /^\d{4}-\d{2}-\d{2}[T ]\d{2}[_:.-]?\d{2}([_:.-]?\d{2}([.,]\d+)?)?(Z|[+-]\d{2}[_:]?\d{2})?( \d+)?$/i.test(t);
 }

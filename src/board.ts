@@ -26,6 +26,8 @@ export interface BoardHost {
 	open(id: string, newTab?: boolean): void;
 	create(): void;
 	remove(id: string): Promise<void>;
+	/** Optional: the note's tags, without "#" (from properties and inline #tags). */
+	getTags?(id: string): string[];
 	/** Optional: let the user pick a vault image; returns a wallpaper value like "[[pic.jpg]]". */
 	pickImage?(): Promise<string | null>;
 	isDark(): boolean;
@@ -156,6 +158,9 @@ export class Board {
 		this.pendingStyle.delete(id);
 		if (!!this.styleOf(id).pinned !== this.pinnedIds.has(id)) void this.refresh();
 		else this.restyle(id);
+		this.columnsEl.querySelectorAll<HTMLElement>(".yarn-card").forEach((c) => {
+			if (c.dataset.id === id) this.renderTags(c, id);
+		});
 		this.sheetRepaint?.();
 	}
 
@@ -376,7 +381,17 @@ export class Board {
 			}
 			this.shown = this.all.filter((n) => {
 				const text = this.cache.get(n.id)?.preview.searchText ?? n.title.toLowerCase();
-				return terms.every((t) => text.includes(t));
+				return terms.every((t) => {
+					// "#tag" matches the note's tags (and nested ones like #tag/sub), not just text.
+					if (t.startsWith("#") && t.length > 1 && this.host.getTags) {
+						const want = t.slice(1);
+						return this.host.getTags(n.id).some((g) => {
+							const tag = g.toLowerCase();
+							return tag === want || tag.startsWith(want + "/");
+						});
+					}
+					return text.includes(t);
+				});
 			});
 		}
 		if (gen !== this.generation) return;
@@ -559,6 +574,26 @@ export class Board {
 			}
 		}
 		const body = el("div", "yarn-card-body", card);
+
+		// Mouse/trackpad only (hidden by CSS on touch screens): colour + pin buttons. They float
+		// in the top-right corner so the title (or first line) wraps around them, never under them.
+		const tools = el("div", "yarn-card-tools", body);
+		const palette = el("button", "yarn-card-tool yarn-card-palette", tools);
+		palette.setAttribute("aria-label", "Colour and wallpaper");
+		this.host.icon(palette, "palette");
+		palette.addEventListener("click", (e) => {
+			e.stopPropagation();
+			this.openSheet(note.id);
+		});
+		const pin = el("button", "yarn-card-tool yarn-card-pin", tools);
+		pin.setAttribute("aria-label", "Pin / unpin");
+		this.host.icon(pin, "pin");
+		pin.addEventListener("click", (e) => {
+			e.stopPropagation();
+			void this.togglePin(note.id);
+		});
+		for (const b of [pin, palette]) b.addEventListener("pointerdown", (e) => e.stopPropagation());
+
 		const hideTitle = isPlaceholderTitle(note.title);
 		if (!hideTitle) el("div", "yarn-card-title", body, note.title);
 		if (p.lines.length) {
@@ -582,26 +617,36 @@ export class Board {
 			el("div", "yarn-card-empty", body, "Empty note");
 		}
 
-		// Mouse/trackpad only (hidden by CSS on touch screens): quick pin + colour buttons.
-		const pin = el("button", "yarn-card-tool yarn-card-pin", card);
-		pin.setAttribute("aria-label", "Pin / unpin");
-		this.host.icon(pin, "pin");
-		pin.addEventListener("click", (e) => {
-			e.stopPropagation();
-			void this.togglePin(note.id);
-		});
-		const palette = el("button", "yarn-card-tool yarn-card-palette", card);
-		palette.setAttribute("aria-label", "Colour and wallpaper");
-		this.host.icon(palette, "palette");
-		palette.addEventListener("click", (e) => {
-			e.stopPropagation();
-			this.openSheet(note.id);
-		});
-		for (const b of [pin, palette]) b.addEventListener("pointerdown", (e) => e.stopPropagation());
-
+		this.renderTags(card, note.id);
 		this.styleCard(card, note.id);
 		this.bindCard(card, note.id);
 		return card;
+	}
+
+	/** One line of tag chips at the bottom of the card; tapping one searches for it. */
+	private renderTags(card: HTMLElement, id: string): void {
+		card.querySelector(".yarn-card-tags")?.remove();
+		const tags = this.host.getTags?.(id) ?? [];
+		if (!tags.length) return;
+		const body = card.querySelector<HTMLElement>(".yarn-card-body") ?? card;
+		const row = el("div", "yarn-card-tags", body);
+		for (const tag of tags) {
+			const chip = el("button", "yarn-tag", row, tag);
+			chip.addEventListener("pointerdown", (e) => e.stopPropagation());
+			chip.addEventListener("click", (e) => {
+				e.stopPropagation();
+				this.search("#" + tag);
+			});
+		}
+	}
+
+	/** Put text in the search bar and run it. */
+	search(query: string): void {
+		this.input.value = query;
+		this.query = query;
+		this.updateClear();
+		this.scroller.scrollTop = 0;
+		void this.applyFilter(BATCH);
 	}
 
 	private styleCard(card: HTMLElement, id: string): void {

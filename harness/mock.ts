@@ -25,6 +25,8 @@ const ICONS: Record<string, string> = {
 const NOTES: Array<{ title: string; body: string; style?: NoteStyle }> = [
 	{ title: "Learning bulgarian after the second date", body: "They show each other letters on the fourth date?\n\n- Milad cooks for her so that she has food for starting her week but realizes the food won't keep that long and panics like (I realized it was Wednesday, and her shift was only starting next Monday. The food would never keep that long.)\n- Another bullet" },
 	{ title: "What the story has to do", body: "-Tragic, engaging story with arc\n\n-PRIORITY: Show Lalka as beautiful / Make the reader fall in love with Lalka\nBody\nSoul\nfor each, should be named later, but should be clear\n\n-Erotic poetry and distillation of desire\n\n-Tell the truth" },
+	{ title: "2026-11-09T07_08_55.452-05_00", body: "I woke up this morning and I felt at peace, but like there was a note left for a part of my consciousness.\n\n#Forms" },
+	{ title: "Lalka's Eyes", body: "They were the eyes of a cheetah, ferociously intelligent, untamed, and yet gentle beyond rational measure.\n\n#Stories #Characters/Lalka" },
 	{ title: "Groceries", body: "- [ ] Oat milk\n- [ ] Bananas\n- [x] Coffee beans\n- [ ] Sourdough\n- [x] Eggs\n- [ ] Spinach", style: { color: "sand", pinned: true } },
 	{ title: "Trip ideas", body: "Lisbon in spring — tram 28, pastéis de nata at **Manteigaria**.\n\nPorto after: port cellars + the bookshop.", style: { color: "fog", wallpaper: "waves" } },
 	{ title: "Untitled 2", body: "Call the dentist back about Thursday", style: undefined },
@@ -69,6 +71,7 @@ const host: BoardHost = {
 	listNotes: () => notes.slice(),
 	read: async (id) => bodies.get(id) ?? "",
 	getStyle: (id) => styles.get(id) ?? {},
+	getTags: (id) => [...new Set((bodies.get(id) ?? "").match(/#[A-Za-z][\w/-]*/g) ?? [])].map((t) => t.slice(1)),
 	setStyle: async (id, patch) => void styles.set(id, { ...styles.get(id), ...patch }),
 	resolveImage: () => null,
 	open: (id, newTab) => log("open " + id + (newTab ? " (new tab)" : "")),
