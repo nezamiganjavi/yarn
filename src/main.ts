@@ -24,6 +24,22 @@ const COLOR_KEY = "card-color";
 const WALLPAPER_KEY = "card-wallpaper";
 const PINNED_KEY = "card-pinned";
 const CHROME_CLASS = "yarn-chrome-hidden";
+/** Google Keep colour names (as written by the Keep importer) → Yarn palette. */
+const KEEP_COLORS: Record<string, string> = {
+	red: "coral",
+	orange: "peach",
+	yellow: "sand",
+	green: "mint",
+	teal: "sage",
+	blue: "fog",
+	darkblue: "storm",
+	cerulean: "storm",
+	purple: "dusk",
+	pink: "blossom",
+	brown: "clay",
+	gray: "chalk",
+	grey: "chalk",
+};
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "svg"]);
 
 interface YarnSettings {
@@ -249,23 +265,53 @@ export default class YarnPlugin extends Plugin {
 		return f instanceof TFile ? f : null;
 	}
 
-	getTags(id: string): string[] {
+	/** All tags on a note exactly as Obsidian sees them, without "#". */
+	private rawTags(id: string): string[] {
 		const f = this.file(id);
 		const cache = f ? this.app.metadataCache.getFileCache(f) : null;
+		return ((cache && getAllTags(cache)) ?? []).map((t) => t.replace(/^#/, "")).filter(Boolean);
+	}
+
+	/**
+	 * Tags to show on the card. The Google Keep importer writes labels as "Keep/Label/Traits"
+	 * (shown as "Traits", sub-labels as "Traits/sub") and stores pins/colours as tags like
+	 * "Keep/Pinned" and "Keep/Color/Green"; those become Yarn pins/colours instead of chips.
+	 */
+	getTags(id: string): string[] {
 		const seen = new Map<string, string>();
-		for (const t of (cache && getAllTags(cache)) ?? []) {
-			const tag = t.replace(/^#/, "");
-			if (tag && !seen.has(tag.toLowerCase())) seen.set(tag.toLowerCase(), tag);
+		for (const raw of this.rawTags(id)) {
+			let tag = raw;
+			const label = /^keep\/label\/(.+)$/i.exec(raw);
+			if (label) tag = label[1];
+			else if (/^keep(\/|$)/i.test(raw)) continue;
+			if (!seen.has(tag.toLowerCase())) seen.set(tag.toLowerCase(), tag);
 		}
 		return [...seen.values()];
+	}
+
+	/** Pin/colour carried over from Google Keep import tags, if any. */
+	private keepImport(id: string): { pinned: boolean; color?: string } {
+		let pinned = false;
+		let color: string | undefined;
+		for (const raw of this.rawTags(id)) {
+			if (/^keep\/pinned$/i.test(raw)) pinned = true;
+			const c = /^keep\/colou?r\/(.+)$/i.exec(raw);
+			if (c) color = KEEP_COLORS[c[1].toLowerCase().replace(/[^a-z]/g, "")];
+		}
+		return { pinned, color };
 	}
 
 	getStyle(id: string): NoteStyle {
 		const f = this.file(id);
 		const fm = f ? this.app.metadataCache.getFileCache(f)?.frontmatter : undefined;
 		const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+		const keep = this.keepImport(id);
+		// Yarn's own properties win; otherwise fall back to what Keep had.
 		const pin = fm?.[PINNED_KEY];
-		return { color: str(fm?.[COLOR_KEY]), wallpaper: str(fm?.[WALLPAPER_KEY]), pinned: pin === true || pin === "true" };
+		const pinned = pin === undefined || pin === null ? keep.pinned : pin === true || pin === "true";
+		const ownColor = str(fm?.[COLOR_KEY]);
+		const color = ownColor === "none" ? undefined : ownColor ?? keep.color;
+		return { color, wallpaper: str(fm?.[WALLPAPER_KEY]), pinned };
 	}
 
 	async setStyle(id: string, patch: NoteStyle): Promise<void> {
@@ -275,14 +321,17 @@ export default class YarnPlugin extends Plugin {
 			if (v) fm[key] = v;
 			else delete fm[key];
 		};
+		// Clearing a colour or pin that came from Keep needs an explicit "off" to override the tag.
+		const keep = this.keepImport(id);
 		// Keep the original modified time so colouring a note doesn't bump it to the top.
 		await this.app.fileManager.processFrontMatter(
 			f,
 			(fm) => {
-				if ("color" in patch) set(fm, COLOR_KEY, patch.color);
+				if ("color" in patch) set(fm, COLOR_KEY, patch.color ?? (keep.color ? "none" : undefined));
 				if ("wallpaper" in patch) set(fm, WALLPAPER_KEY, patch.wallpaper);
 				if ("pinned" in patch) {
 					if (patch.pinned) fm[PINNED_KEY] = true;
+					else if (keep.pinned) fm[PINNED_KEY] = false;
 					else delete fm[PINNED_KEY];
 				}
 			},
