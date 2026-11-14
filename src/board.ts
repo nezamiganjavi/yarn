@@ -8,6 +8,16 @@ export interface NoteRef {
 	id: string; // vault path
 	title: string; // basename
 	mtime: number;
+	/** The date the list is sorted by (edited or created), for the scrubber. */
+	date?: number;
+}
+
+export interface BoardState {
+	scroll?: number;
+	query?: string;
+	/** The note at the top of the screen and how far it was scrolled, so deep positions survive. */
+	anchor?: string;
+	offset?: number;
 }
 
 export interface NoteStyle {
@@ -35,6 +45,10 @@ export interface BoardHost {
 	isDark(): boolean;
 	icon(el: HTMLElement, name: string): void;
 	previewLines: number;
+	/** "date" sorts (edited/created) scrub by month; "name" sort scrubs by letter. */
+	sortKind?: "date" | "name";
+	/** Show the drag-to-date scrubber on the right edge. */
+	scrubber?: boolean;
 	/** How a card shows that its note continues: "…", a fade, or nothing. */
 	overflow: "ellipsis" | "fade" | "none";
 	layout: "grid" | "list";
@@ -101,7 +115,19 @@ export class Board {
 	private shownSig = "";
 	private all: NoteRef[] = [];
 	private shown: NoteRef[] = [];
+	/** Others are rendered as a window [start, rendered) of `shown`; pinned are always all rendered. */
+	private start = 0;
 	private rendered = 0;
+	/** One spacer at the top of each Others column, used to keep columns level when loading upward. */
+	private spacers: HTMLElement[] = [];
+	private topSentinel: HTMLElement | null = null;
+	private scrub: HTMLElement | null = null;
+	private thumb!: HTMLElement;
+	private bubble!: HTMLElement;
+	private marks!: HTMLElement;
+	private dragging = false;
+	private scrubHide: number | undefined;
+	private scrubJump: number | undefined;
 	private query = "";
 	private loading = false;
 	private generation = 0;
@@ -130,14 +156,25 @@ export class Board {
 		return this.query;
 	}
 
+	/** Where the board is, for saving (Back navigation, restarts). */
+	get state(): BoardState {
+		const a = this.anchor();
+		return { scroll: this.scroller.scrollTop, query: this.query, anchor: a?.id, offset: a?.offset };
+	}
+
 	/** Restore scroll/query, e.g. after coming back from a note. */
-	async restore(state: { scroll?: number; query?: string }): Promise<void> {
+	async restore(state: BoardState): Promise<void> {
 		if (typeof state.query === "string" && state.query !== this.query) {
 			this.input.value = state.query;
 			this.query = state.query;
 			this.updateClear();
 		}
 		await this.refresh();
+		const idx = state.anchor ? this.shown.findIndex((n) => n.id === state.anchor) : -1;
+		if (idx >= this.pinnedCount) {
+			await this.jumpTo(idx, state.offset ?? 0);
+			return;
+		}
 		if (typeof state.scroll === "number" && state.scroll > 0) {
 			// Make sure enough cards exist to reach the old position.
 			let guard = 0;
@@ -152,10 +189,10 @@ export class Board {
 	async refresh(): Promise<void> {
 		this.root.style.setProperty("--yarn-lines", String(this.host.previewLines));
 		const keepScroll = this.scroller.scrollTop;
-		const keepCount = Math.max(this.rendered, BATCH);
+		const a = this.anchor();
 		this.all = this.host.listNotes();
-		await this.applyFilter(keepCount);
-		this.scroller.scrollTop = keepScroll;
+		const rebuilt = await this.applyFilter(BATCH, a);
+		if (rebuilt && !a) this.scroller.scrollTop = keepScroll;
 	}
 
 	/** Call when a note's metadata changed on disk: drops the optimistic style and repaints. */
@@ -288,17 +325,179 @@ export class Board {
 
 		this.observer = new IntersectionObserver(
 			(entries) => {
-				if (entries.some((e) => e.isIntersecting)) void this.renderMore();
+				for (const e of entries) {
+					if (!e.isIntersecting) continue;
+					if (e.target === this.sentinel) void this.renderMore();
+					else void this.renderAbove();
+				}
 			},
 			{ root: this.scroller, rootMargin: "600px 0px" },
 		);
 		this.observer.observe(this.sentinel);
+
+		this.buildScrubber();
+		this.scroller.addEventListener("scroll", () => this.onScroll(), { passive: true });
 
 		this.resizeObs = new ResizeObserver(() => {
 			this.relayout(false);
 			this.updateInsets();
 		});
 		this.resizeObs.observe(this.scroller);
+	}
+
+	// ---------- date scrubber ----------
+
+	private buildScrubber(): void {
+		const s = (this.scrub = el("div", "yarn-scrub", this.root));
+		this.marks = el("div", "yarn-scrub-marks", s);
+		this.thumb = el("div", "yarn-scrub-thumb", s);
+		this.thumb.setAttribute("role", "slider");
+		this.thumb.setAttribute("aria-label", "Scroll by date");
+		el("div", "yarn-scrub-grip", this.thumb);
+		this.bubble = el("div", "yarn-scrub-bubble", s);
+
+		let grabY = 0;
+		const fractionAt = (clientY: number) => {
+			const r = s.getBoundingClientRect();
+			const h = this.thumb.offsetHeight;
+			return Math.max(0, Math.min(1, (clientY - grabY - r.top) / Math.max(1, r.height - h)));
+		};
+		this.thumb.addEventListener("pointerdown", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			this.thumb.setPointerCapture(e.pointerId);
+			grabY = e.clientY - this.thumb.getBoundingClientRect().top;
+			this.dragging = true;
+			this.root.classList.add("is-scrubbing");
+			window.clearTimeout(this.scrubHide);
+			s.classList.add("is-visible");
+			this.drawTrackMarks();
+			this.markMonths();
+			this.dragTo(fractionAt(e.clientY));
+		});
+		this.thumb.addEventListener("pointermove", (e) => {
+			if (this.dragging) this.dragTo(fractionAt(e.clientY));
+		});
+		const end = () => {
+			if (!this.dragging) return;
+			this.dragging = false;
+			window.clearTimeout(this.scrubJump);
+			void this.jumpTo(this.dragIndex).then(() => {
+				this.root.classList.remove("is-scrubbing");
+				this.updateScrubber();
+				this.scheduleScrubHide();
+			});
+		};
+		this.thumb.addEventListener("pointerup", end);
+		this.thumb.addEventListener("pointercancel", end);
+		this.thumb.addEventListener("lostpointercapture", end);
+	}
+
+	private dragIndex = 0;
+
+	/** While dragging: move the thumb and bubble at once; jump the board after a short pause. */
+	private dragTo(f: number): void {
+		const span = this.shown.length - this.pinnedCount;
+		if (span <= 0) return;
+		this.dragIndex = this.pinnedCount + Math.round(f * (span - 1));
+		this.placeThumb(f);
+		this.bubble.textContent = this.labelFor(this.dragIndex);
+		window.clearTimeout(this.scrubJump);
+		this.scrubJump = window.setTimeout(() => {
+			void this.jumpTo(this.dragIndex).then(() => {
+				if (this.dragging) this.markMonths();
+			});
+		}, 140);
+	}
+
+	private placeThumb(f: number): void {
+		if (!this.scrub) return;
+		const travel = this.scrub.clientHeight - this.thumb.offsetHeight;
+		const y = Math.round(f * Math.max(0, travel));
+		this.thumb.style.transform = `translateY(${y}px)`;
+		this.bubble.style.transform = `translateY(${y + this.thumb.offsetHeight / 2}px) translateY(-50%)`;
+	}
+
+	/** Month and year (date sorts) or first letter (name sort) of the note at `index`. */
+	private labelFor(index: number): string {
+		const n = this.shown[index];
+		if (!n) return "";
+		if (this.host.sortKind === "name") {
+			const ch = n.title.trim().charAt(0).toUpperCase();
+			return /[\p{L}\p{N}]/u.test(ch) ? ch : "#";
+		}
+		return new Date(n.date ?? n.mtime).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+	}
+
+	private shortLabel(index: number): string {
+		const n = this.shown[index];
+		if (!n) return "";
+		if (this.host.sortKind === "name") return this.labelFor(index);
+		return new Date(n.date ?? n.mtime).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+	}
+
+	/** Years (or letters) along the track while you hold the thumb, like a ruler. */
+	private drawTrackMarks(): void {
+		this.marks.replaceChildren();
+		const span = this.shown.length - this.pinnedCount;
+		if (span <= 1 || !this.scrub) return;
+		const h = this.scrub.clientHeight - this.thumb.offsetHeight;
+		const seen = new Set<string>();
+		let lastY = -Infinity;
+		for (let i = this.pinnedCount; i < this.shown.length; i++) {
+			const n = this.shown[i];
+			const key = this.host.sortKind === "name" ? this.labelFor(i) : String(new Date(n.date ?? n.mtime).getFullYear());
+			if (seen.has(key)) continue;
+			seen.add(key);
+			const y = ((i - this.pinnedCount) / (span - 1)) * h + this.thumb.offsetHeight / 2;
+			if (y - lastY < 22) continue;
+			lastY = y;
+			const m = el("div", "yarn-scrub-mark", this.marks, key);
+			m.style.top = y + "px";
+		}
+	}
+
+	/** While scrubbing, label the first card of each month (an overlay; the grid doesn't move). */
+	private markMonths(): void {
+		const cards = Array.from(this.columnsEl.querySelectorAll<HTMLElement>(".yarn-column .yarn-card"));
+		const first = new Map<string, HTMLElement>();
+		for (const c of cards) {
+			delete c.dataset.month;
+			const idx = Number(c.dataset.idx);
+			if (idx < this.pinnedCount) continue;
+			const key = this.shortLabel(idx);
+			const cur = first.get(key);
+			if (!cur || Number(cur.dataset.idx) > idx) first.set(key, c);
+		}
+		for (const [key, c] of first) c.dataset.month = key;
+	}
+
+	private onScroll(): void {
+		if (this.dragging || !this.scrub) return;
+		this.updateScrubber();
+		if (this.root.classList.contains("has-scrubber")) {
+			this.scrub.classList.add("is-visible");
+			this.scheduleScrubHide();
+		}
+	}
+
+	private scheduleScrubHide(): void {
+		window.clearTimeout(this.scrubHide);
+		this.scrubHide = window.setTimeout(() => this.scrub?.classList.remove("is-visible"), 1600);
+	}
+
+	/** Put the thumb where the top of the screen is in the list. */
+	updateScrubber(): void {
+		if (!this.scrub || this.dragging) return;
+		const span = this.shown.length - this.pinnedCount;
+		const on = this.host.scrubber !== false && span > 30;
+		this.root.classList.toggle("has-scrubber", on);
+		if (!on) return;
+		const a = this.anchor();
+		let f = 0;
+		if (a) f = span > 1 ? (a.idx - this.pinnedCount) / (span - 1) : 0;
+		if (this.scroller.scrollTop + this.scroller.clientHeight >= this.scroller.scrollHeight - 2 && this.rendered >= this.shown.length) f = 1;
+		this.placeThumb(f);
 	}
 
 	private updateClear(): void {
@@ -330,32 +529,45 @@ export class Board {
 	private relayout(force: boolean): void {
 		const n = this.wantedColumns();
 		if (!force && n === this.colCount) return;
-		const keep = this.rendered;
+		const a = this.anchor();
+		const keepScroll = this.scroller.scrollTop;
 		this.shownSig = "";
-		void this.resetColumns().then(() => this.renderUpTo(Math.max(keep, BATCH)));
+		void (async () => {
+			await this.resetColumns();
+			await this.renderPinned();
+			const idx = a ? this.shown.findIndex((x) => x.id === a.id) : -1;
+			if (idx >= this.pinnedCount) await this.jumpTo(idx, a!.offset);
+			else {
+				await this.renderUpTo(BATCH);
+				this.scroller.scrollTop = keepScroll;
+			}
+		})();
 	}
 
 	private async resetColumns(): Promise<void> {
 		this.generation++;
 		this.loading = false;
-		this.rendered = 0;
+		this.start = this.rendered = this.pinnedCount;
 		this.colCount = this.wantedColumns();
 		this.columnsEl.replaceChildren();
 		const list = this.host.layout === "list";
 		const wide = this.scroller.clientWidth - 24 >= WIDE;
 		this.root.classList.toggle("is-wide", wide);
 		this.columnsEl.style.maxWidth = wide && !list ? this.colCount * WIDE_CARD + (this.colCount - 1) * GAP + "px" : "";
-		const section = (label: string | null) => {
+		const section = (label: string | null, others: boolean) => {
 			const sec = el("div", "yarn-section", this.columnsEl);
 			if (label) el("div", "yarn-section-label", sec, label);
+			if (others) this.topSentinel = el("div", "yarn-top-sentinel", sec);
 			const row = el("div", "yarn-columns-row" + (list ? " is-list" : ""), sec);
 			const cols: HTMLElement[] = [];
 			for (let i = 0; i < this.colCount; i++) cols.push(el("div", "yarn-column", row));
 			return cols;
 		};
 		const hasPinned = this.pinnedCount > 0;
-		this.pinnedColumns = hasPinned ? section("Pinned") : [];
-		this.columns = section(hasPinned ? "Others" : null);
+		this.pinnedColumns = hasPinned ? section("Pinned", false) : [];
+		this.columns = section(hasPinned ? "Others" : null, true);
+		this.spacers = this.columns.map((c) => el("div", "yarn-spacer", c));
+		if (this.topSentinel) this.observer?.observe(this.topSentinel);
 	}
 
 	// ---------- data ----------
@@ -374,7 +586,8 @@ export class Board {
 		return preview;
 	}
 
-	private async applyFilter(renderCount: number): Promise<void> {
+	/** Returns true if the board was rebuilt. With an anchor, it re-centres on that note. */
+	private async applyFilter(renderCount: number, anchor: { id: string; offset: number } | null = null): Promise<boolean> {
 		const gen = ++this.generation;
 		const q = this.query.trim().toLowerCase();
 		if (!q) {
@@ -387,7 +600,7 @@ export class Board {
 				this.setStatus(`Searching ${this.all.length} notes…`);
 				for (let i = 0; i < missing.length; i += 40) {
 					await Promise.all(missing.slice(i, i + 40).map((n) => this.previewFor(n)));
-					if (gen !== this.generation) return; // a newer search started
+					if (gen !== this.generation) return false; // a newer search started
 				}
 			}
 			this.shown = this.all.filter((n) => {
@@ -412,7 +625,7 @@ export class Board {
 				});
 			});
 		}
-		if (gen !== this.generation) return;
+		if (gen !== this.generation) return false;
 		// Pinned notes first, in their usual order.
 		const pinned = this.shown.filter((n) => this.styleOf(n.id).pinned);
 		this.pinnedIds = new Set(pinned.map((n) => n.id));
@@ -422,7 +635,7 @@ export class Board {
 		const sig = `${this.host.layout}|${this.wantedColumns()}|${pinned.length}|` + this.shown.map((n) => n.id + ":" + n.mtime).join("|");
 		if (sig === this.shownSig && this.rendered > 0) {
 			this.restyle();
-			return;
+			return false;
 		}
 		this.shownSig = sig;
 		// Forget cards for notes that no longer exist.
@@ -431,10 +644,15 @@ export class Board {
 			for (const id of this.cards.keys()) if (!ids.has(id)) this.cards.delete(id);
 		}
 		await this.resetColumns();
-		await this.renderUpTo(renderCount);
+		await this.renderPinned();
+		const idx = anchor ? this.shown.findIndex((n) => n.id === anchor.id) : -1;
+		if (idx >= this.pinnedCount) await this.jumpTo(idx, anchor!.offset);
+		else await this.renderUpTo(renderCount);
 		if (!this.shown.length) {
 			this.setStatus(q ? "No matching notes" : "", !q);
 		} else this.setStatus("");
+		this.updateScrubber();
+		return true;
 	}
 
 	private setStatus(text: string, emptyVault = false): void {
@@ -462,9 +680,9 @@ export class Board {
 		const gen = this.generation;
 		try {
 			const slice = this.shown.slice(this.rendered, this.rendered + Math.min(max, BATCH));
+			const start = this.rendered;
 			const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
 			if (gen !== this.generation) return; // layout was reset meanwhile
-			const start = this.rendered;
 			slice.forEach((note, i) => {
 				let card: HTMLElement;
 				try {
@@ -473,8 +691,10 @@ export class Board {
 					console.error("Yarn: failed to render", note.id, e);
 					return;
 				}
-				this.shortestColumn(start + i < this.pinnedCount ? this.pinnedColumns : this.columns).appendChild(card);
+				card.dataset.idx = String(start + i);
+				this.shortestColumn(this.columns).appendChild(card);
 				this.fitContent(card);
+				card.dataset.h = String(card.getBoundingClientRect().height);
 			});
 			this.rendered += slice.length;
 		} finally {
@@ -483,6 +703,153 @@ export class Board {
 		// If the new cards didn't push the sentinel off-screen, the observer won't fire again: keep going.
 		requestAnimationFrame(() => {
 			if (gen === this.generation && this.sentinelNear()) void this.renderMore();
+		});
+	}
+
+	/** Pinned notes are few, so they are always rendered in full. */
+	private async renderPinned(): Promise<void> {
+		if (!this.pinnedCount) return;
+		const gen = this.generation;
+		const slice = this.shown.slice(0, this.pinnedCount);
+		const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
+		if (gen !== this.generation) return;
+		slice.forEach((note, i) => {
+			try {
+				const card = this.renderCard(note, previews[i]);
+				card.dataset.idx = String(i);
+				this.shortestColumn(this.pinnedColumns).appendChild(card);
+				this.fitContent(card);
+				card.dataset.h = String(card.getBoundingClientRect().height);
+			} catch (e) {
+				console.error("Yarn: failed to render", note.id, e);
+			}
+		});
+	}
+
+	/**
+	 * Load newer notes above the window (after a jump). New cards are measured first, shared
+	 * out so every column grows by the same amount (spacers absorb the remainder), and the
+	 * scroll position moves by exactly that amount, so nothing on screen shifts.
+	 */
+	async renderAbove(): Promise<void> {
+		if (this.loading || this.start <= this.pinnedCount || !this.columns.length) return;
+		this.loading = true;
+		const gen = this.generation;
+		try {
+			const from = Math.max(this.pinnedCount, this.start - BATCH);
+			const slice = this.shown.slice(from, this.start);
+			const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
+			if (gen !== this.generation) return;
+			const row = this.columns[0].parentElement!;
+			const measure = el("div", "yarn-column yarn-measure", row);
+			measure.style.width = this.columns[0].offsetWidth + "px";
+			const built: HTMLElement[] = [];
+			slice.forEach((note, i) => {
+				try {
+					const card = this.renderCard(note, previews[i]);
+					card.dataset.idx = String(from + i);
+					card.classList.add("is-settled");
+					measure.appendChild(card);
+					this.fitContent(card);
+					built.push(card);
+				} catch (e) {
+					console.error("Yarn: failed to render", note.id, e);
+				}
+			});
+			const heights = built.map((c) => c.getBoundingClientRect().height);
+			measure.remove();
+			const v = this.spacers.map((sp) => -(parseFloat(sp.style.height) || 0));
+			// Nearest-to-window first, each inserted at the top, so columns read newest → oldest.
+			for (let k = built.length - 1; k >= 0; k--) {
+				let c = 0;
+				for (let j = 1; j < v.length; j++) if (v[j] < v[c]) c = j;
+				const sp = this.spacers[c];
+				sp.parentElement!.insertBefore(built[k], sp.nextSibling);
+				built[k].dataset.h = String(heights[k]);
+				v[c] += heights[k] + GAP;
+			}
+			const shift = Math.max(...v);
+			this.spacers.forEach((sp, i) => (sp.style.height = shift - v[i] + "px"));
+			this.scroller.scrollTop += shift;
+			this.start = from;
+		} finally {
+			if (gen === this.generation) this.loading = false;
+		}
+		requestAnimationFrame(() => {
+			if (gen === this.generation && this.topNear()) void this.renderAbove();
+		});
+	}
+
+	private topNear(): boolean {
+		if (!this.topSentinel) return false;
+		return this.topSentinel.getBoundingClientRect().bottom > this.scroller.getBoundingClientRect().top - 600;
+	}
+
+	/** A card grew after it was placed (an image loaded). If it's above the screen, keep the view still. */
+	private cardGrew(card: HTMLElement): void {
+		const before = Number(card.dataset.h || 0);
+		const now = card.getBoundingClientRect().height;
+		card.dataset.h = String(now);
+		const delta = now - before;
+		if (!delta || !before) return;
+		const col = this.columns.indexOf(card.parentElement as HTMLElement);
+		if (col < 0) return;
+		if (card.getBoundingClientRect().top >= this.scroller.getBoundingClientRect().top) return;
+		// Grow the other columns' spacers by the same amount so all columns move together.
+		this.spacers.forEach((sp, i) => {
+			if (i !== col) sp.style.height = (parseFloat(sp.style.height) || 0) + delta + "px";
+		});
+		this.scroller.scrollTop += delta;
+	}
+
+	/** The topmost visible Others card and its offset from the top of the screen. */
+	anchor(): { id: string; offset: number; idx: number } | null {
+		if (!this.columns.length) return null;
+		const top = this.scroller.getBoundingClientRect().top;
+		const row = this.columns[0].parentElement;
+		if (!row || row.getBoundingClientRect().top >= top) return null; // still at the top of the board
+		let best: HTMLElement | null = null;
+		for (const col of this.columns) {
+			for (const c of Array.from(col.children) as HTMLElement[]) {
+				if (!c.classList.contains("yarn-card")) continue;
+				if (c.getBoundingClientRect().bottom <= top) continue;
+				if (!best || Number(c.dataset.idx) < Number(best.dataset.idx)) best = c;
+				break;
+			}
+		}
+		return best ? { id: best.dataset.id!, offset: best.getBoundingClientRect().top - top, idx: Number(best.dataset.idx) } : null;
+	}
+
+	private cardAt(index: number): HTMLElement | null {
+		return this.columnsEl.querySelector<HTMLElement>(`.yarn-card[data-idx="${index}"]`);
+	}
+
+	/** Show the board from note `index` (in the current order/filter), `offset` px below the top. */
+	async jumpTo(index: number, offset = 0): Promise<void> {
+		if (this.shown.length <= this.pinnedCount) return;
+		index = Math.max(this.pinnedCount, Math.min(this.shown.length - 1, index));
+		if (!this.cardAt(index)) {
+			if (this.start === this.pinnedCount && index < this.rendered + 2 * BATCH) {
+				await this.renderUpTo(index + BATCH);
+			} else {
+				// Start a fresh window at the target; newer notes load above as you scroll up.
+				this.generation++;
+				this.loading = false;
+				this.start = this.rendered = index;
+				this.columns.forEach((c, i) => {
+					this.spacers[i].style.height = "0px";
+					c.replaceChildren(this.spacers[i]);
+				});
+				await this.renderUpTo(index + BATCH);
+			}
+		}
+		// A jump lands instantly: skip the fade-in (its 4px slide would throw off the measurement).
+		this.columnsEl.querySelectorAll(".yarn-card:not(.is-settled)").forEach((c) => c.classList.add("is-settled"));
+		const card = this.cardAt(index);
+		if (card) this.scroller.scrollTop += card.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top - offset;
+		requestAnimationFrame(() => {
+			if (this.sentinelNear()) void this.renderMore();
+			else if (this.topNear()) void this.renderAbove();
 		});
 	}
 
@@ -589,6 +956,7 @@ export class Board {
 				img.alt = "";
 				img.src = url;
 				img.addEventListener("error", () => img.remove());
+				img.addEventListener("load", () => this.cardGrew(card));
 			}
 		}
 		const body = el("div", "yarn-card-body", card);

@@ -16,7 +16,7 @@ import {
 	normalizePath,
 	setIcon,
 } from "obsidian";
-import { Board, BoardHost, NoteRef, NoteStyle } from "./board";
+import { Board, BoardHost, BoardState, NoteRef, NoteStyle } from "./board";
 import { FAB_PRESETS } from "./palette";
 
 export const VIEW_TYPE = "yarn-view";
@@ -48,6 +48,7 @@ interface YarnSettings {
 	exclude: string;
 	sort: "modified" | "created" | "name";
 	previewLines: number;
+	scrubber: boolean;
 	overflow: "ellipsis" | "fade" | "none";
 	layout: "grid" | "list";
 	fabColor: string;
@@ -63,6 +64,7 @@ const DEFAULTS: YarnSettings = {
 	exclude: "",
 	sort: "modified",
 	previewLines: 10,
+	scrubber: true,
 	overflow: "ellipsis",
 	layout: "grid",
 	fabColor: "",
@@ -71,10 +73,6 @@ const DEFAULTS: YarnSettings = {
 	cardFont: "system",
 };
 
-interface BoardState {
-	scroll?: number;
-	query?: string;
-}
 
 export default class YarnPlugin extends Plugin {
 	settings!: YarnSettings;
@@ -260,7 +258,7 @@ export default class YarnPlugin extends Plugin {
 		files.sort((a, b) =>
 			s === "name" ? a.basename.localeCompare(b.basename) : s === "created" ? b.stat.ctime - a.stat.ctime : b.stat.mtime - a.stat.mtime,
 		);
-		return files.map((f) => ({ id: f.path, title: f.basename, mtime: f.stat.mtime }));
+		return files.map((f) => ({ id: f.path, title: f.basename, mtime: f.stat.mtime, date: s === "created" ? f.stat.ctime : f.stat.mtime }));
 	}
 
 	file(id: string): TFile | null {
@@ -418,7 +416,7 @@ class YarnView extends ItemView {
 	}
 
 	getState(): Record<string, unknown> {
-		const s: BoardState = this.board ? { scroll: this.board.scrollTop, query: this.board.searchQuery } : this.plugin.lastState;
+		const s: BoardState = this.board ? this.board.state : this.plugin.lastState;
 		return { ...super.getState(), ...s };
 	}
 
@@ -467,6 +465,12 @@ class YarnView extends ItemView {
 			get layout() {
 				return p.settings.layout;
 			},
+			get sortKind() {
+				return p.settings.sort === "name" ? ("name" as const) : ("date" as const);
+			},
+			get scrubber() {
+				return p.settings.scrubber;
+			},
 			get fabColor() {
 				return p.settings.fabColor;
 			},
@@ -502,7 +506,7 @@ class YarnView extends ItemView {
 
 	async onClose(): Promise<void> {
 		if (this.board) {
-			this.plugin.lastState = { scroll: this.board.scrollTop, query: this.board.searchQuery };
+			this.plugin.lastState = this.board.state;
 			this.board.destroy();
 			this.board = null;
 		}
@@ -634,6 +638,17 @@ class YarnSettingTab extends PluginSettingTab {
 					.setValue(s.previewLines)
 					.setDynamicTooltip()
 					.onChange(async (v) => ((s.previewLines = v), await save())),
+			);
+
+		new Setting(containerEl)
+			.setName("Date scrubber")
+			.setDesc("A handle on the right edge appears while you scroll. Drag it to jump through your notes by month (or by letter when sorted by name).")
+			.addToggle((t) =>
+				t.setValue(s.scrubber).onChange(async (v) => {
+					s.scrubber = v;
+					await save(false);
+					this.plugin.forEachView((view) => view.board?.updateScrubber());
+				}),
 			);
 
 		new Setting(containerEl)

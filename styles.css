@@ -97,6 +97,9 @@
 
 .yarn-scroller {
 	flex: 1;
+	/* Yarn keeps the view still itself when loading above; the browser's version would double it. */
+	overflow-anchor: none;
+	scrollbar-width: none;
 	overflow-y: auto;
 	overflow-x: hidden;
 	-webkit-overflow-scrolling: touch;
@@ -837,4 +840,183 @@ body.yarn-chrome-hidden .yarn-root .yarn-header {
 .yarn-root .yarn-tag.is-long {
 	flex: 0 1 auto;
 	min-width: 5em;
+}
+
+/* ---------- windowed loading ---------- */
+
+.yarn-scroller::-webkit-scrollbar {
+	display: none;
+}
+
+.yarn-spacer {
+	flex: none;
+	height: 0;
+	margin-bottom: calc(var(--yarn-gap) * -1);
+}
+
+.yarn-top-sentinel {
+	height: 1px;
+}
+
+.yarn-columns-row {
+	position: relative;
+}
+
+.yarn-measure {
+	position: absolute !important;
+	top: 0;
+	left: 0;
+	visibility: hidden;
+	pointer-events: none;
+}
+
+/* ---------- date scrubber ---------- */
+
+.yarn-scrub {
+	position: absolute;
+	right: 4px;
+	top: 76px;
+	bottom: calc(100px + var(--yarn-bottom-lift) + env(safe-area-inset-bottom, 0px));
+	width: 40px;
+	z-index: 4;
+	pointer-events: none;
+	display: none;
+}
+
+.yarn-root.has-scrubber .yarn-scrub {
+	display: block;
+}
+
+.yarn-scrub-thumb {
+	position: absolute;
+	top: 0;
+	right: 0;
+	width: 40px;
+	height: 48px;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	touch-action: none;
+	cursor: grab;
+	opacity: 0;
+	transition: opacity 200ms ease;
+	pointer-events: none;
+}
+
+.yarn-scrub.is-visible .yarn-scrub-thumb,
+.yarn-root.is-scrubbing .yarn-scrub-thumb {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.yarn-scrub-grip {
+	width: 30px;
+	height: 40px;
+	border-radius: 20px 6px 6px 20px;
+	background: var(--background-secondary);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
+	position: relative;
+}
+
+.yarn-scrub-grip::before,
+.yarn-scrub-grip::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	width: 0;
+	height: 0;
+	margin-left: -4px;
+	border-left: 4px solid transparent;
+	border-right: 4px solid transparent;
+}
+
+.yarn-scrub-grip::before {
+	top: 11px;
+	border-bottom: 5px solid var(--text-muted);
+}
+
+.yarn-scrub-grip::after {
+	bottom: 11px;
+	border-top: 5px solid var(--text-muted);
+}
+
+.yarn-root.is-scrubbing .yarn-scrub-grip {
+	background: var(--interactive-accent);
+	cursor: grabbing;
+}
+
+.yarn-root.is-scrubbing .yarn-scrub-grip::before {
+	border-bottom-color: var(--text-on-accent);
+}
+
+.yarn-root.is-scrubbing .yarn-scrub-grip::after {
+	border-top-color: var(--text-on-accent);
+}
+
+.yarn-scrub-bubble {
+	position: absolute;
+	top: 0;
+	right: 52px;
+	padding: 8px 14px;
+	border-radius: 20px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: 500;
+	white-space: nowrap;
+	box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+	opacity: 0;
+	transition: opacity 150ms ease;
+}
+
+.yarn-root.is-scrubbing .yarn-scrub-bubble {
+	opacity: 1;
+}
+
+.yarn-scrub-marks {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	transition: opacity 150ms ease;
+}
+
+.yarn-root.is-scrubbing .yarn-scrub-marks {
+	opacity: 1;
+}
+
+.yarn-scrub-mark {
+	position: absolute;
+	right: 44px;
+	transform: translateY(-50%);
+	padding: 1px 7px;
+	border-radius: 8px;
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 0.72em;
+	box-shadow: 0 0 0 1px var(--background-modifier-border);
+}
+
+/* Month labels on the first card of each month: only while holding the scrubber. */
+.yarn-card[data-month]::after {
+	content: attr(data-month);
+	position: absolute;
+	top: 6px;
+	left: 6px;
+	z-index: 2;
+	padding: 2px 9px;
+	border-radius: 10px;
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-size: 0.75em;
+	font-weight: 600;
+	opacity: 0;
+	transition: opacity 150ms ease;
+	pointer-events: none;
+}
+
+.yarn-root.is-scrubbing .yarn-card[data-month]::after {
+	opacity: 1;
+}
+
+.yarn-root.is-scrubbing .yarn-card[data-month] {
+	box-shadow: 0 0 0 2px var(--interactive-accent);
 }

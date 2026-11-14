@@ -60,7 +60,9 @@ for (let i = 0; i < count; i++) {
 	const n = NOTES[i % NOTES.length];
 	const title = i < NOTES.length ? n.title : `${n.title} (${Math.floor(i / NOTES.length) + 1})`;
 	const id = `Notes/${title}.md`;
-	notes.push({ id, title, mtime: now - i * 3600_000 });
+	// Spread notes over ~2 years so the scrubber has months to show.
+	const t = now - i * 20 * 3600_000;
+	notes.push({ id, title, mtime: t, date: t });
 	bodies.set(id, n.body);
 	if (n.style) styles.set(id, { ...n.style, pinned: i < NOTES.length && n.style.pinned });
 }
@@ -86,6 +88,8 @@ const host: BoardHost = {
 		el.insertAdjacentHTML("beforeend", svg);
 	},
 	previewLines: Number(params.get("lines") ?? 10),
+	sortKind: "date",
+	scrubber: true,
 	overflow: (params.get("overflow") as "fade") || "ellipsis",
 	fabColor: params.get("fab") ?? "",
 	get layout() {
@@ -101,8 +105,14 @@ const host: BoardHost = {
 };
 
 const root = document.getElementById("app") as HTMLElement;
-const board = new Board(root, host);
+let board = new Board(root, host);
 (window as any).board = board;
+(window as any).remount = () => {
+	board.destroy();
+	board = new Board(root, host);
+	(window as any).board = board;
+	return board;
+};
 void board.restore({ query: params.get("q") ?? "" }).then(() => {
 	if (params.get("sheet")) board.openSheet(notes[1].id);
 	document.body.dataset.ready = "1";
