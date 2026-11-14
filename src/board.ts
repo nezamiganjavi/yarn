@@ -28,6 +28,8 @@ export interface BoardHost {
 	remove(id: string): Promise<void>;
 	/** Optional: the note's tags, without "#" (from properties and inline #tags). */
 	getTags?(id: string): string[];
+	/** Optional: how to display a tag (custom label names); defaults to the tag itself. */
+	tagLabel?(tag: string): string;
 	/** Optional: let the user pick a vault image; returns a wallpaper value like "[[pic.jpg]]". */
 	pickImage?(): Promise<string | null>;
 	isDark(): boolean;
@@ -647,7 +649,10 @@ export class Board {
 		const body = card.querySelector<HTMLElement>(".yarn-card-body") ?? card;
 		const row = el("div", "yarn-card-tags", body);
 		for (const tag of tags) {
-			const chip = el("button", "yarn-tag", row, tag);
+			const chip = el("button", "yarn-tag", row, this.host.tagLabel?.(tag) ?? tag);
+			chip.title = "#" + tag;
+			// Only long names give up space (and get "…"); short ones like "Stories" stay whole.
+			if ((chip.textContent ?? "").length > 14) chip.classList.add("is-long");
 			chip.addEventListener("pointerdown", (e) => e.stopPropagation());
 			chip.addEventListener("click", (e) => {
 				e.stopPropagation();
@@ -674,7 +679,8 @@ export class Board {
 		const chip = (label: string, query: string, icon: string, n?: number) => {
 			const b = el("button", "yarn-suggest-chip", row);
 			this.host.icon(el("span", "yarn-suggest-icon", b), icon);
-			el("span", "", b, label);
+			el("span", "yarn-suggest-name", b, label);
+			b.title = query;
 			if (n !== undefined) el("span", "yarn-suggest-count", b, String(n));
 			// Keep focus in the input until the click lands.
 			b.addEventListener("pointerdown", (e) => e.preventDefault());
@@ -688,12 +694,17 @@ export class Board {
 		chip("Unlabelled", "#unlabelled", "tag", untagged);
 		[...counts.values()]
 			.sort((a, b) => a.name.localeCompare(b.name))
-			.forEach((t) => chip(t.name, "#" + t.name, "tag", t.n));
+			.forEach((t) => chip(this.host.tagLabel?.(t.name) ?? t.name, "#" + t.name, "tag", t.n));
 		this.suggest.style.display = "";
 	}
 
 	private hideSuggestions(): void {
 		this.suggest.style.display = "none";
+	}
+
+	/** Re-draw every card's tag chips (e.g. after label names change). */
+	retag(): void {
+		this.columnsEl.querySelectorAll<HTMLElement>(".yarn-card").forEach((c) => this.renderTags(c, c.dataset.id!));
 	}
 
 	/** Put text in the search bar and run it. */

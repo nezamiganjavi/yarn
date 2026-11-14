@@ -72,6 +72,7 @@ const host: BoardHost = {
 	listNotes: () => notes.slice(),
 	read: async (id) => bodies.get(id) ?? "",
 	getStyle: (id) => styles.get(id) ?? {},
+	tagLabel: (t) => (t.toLowerCase() === "characters/lalka" ? "A Portrait of Lalka by Milād" : t),
 	getTags: (id) => [...new Set((bodies.get(id) ?? "").match(/#[A-Za-z][\w/-]*/g) ?? [])].map((t) => t.slice(1)),
 	setStyle: async (id, patch) => void styles.set(id, { ...styles.get(id), ...patch }),
 	resolveImage: () => null,

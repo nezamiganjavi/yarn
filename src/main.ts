@@ -51,6 +51,8 @@ interface YarnSettings {
 	overflow: "ellipsis" | "fade" | "none";
 	layout: "grid" | "list";
 	fabColor: string;
+	/** Lines of "tag = Display name". */
+	tagNames: string;
 	hideChrome: boolean;
 	cardFont: "system" | "obsidian";
 }
@@ -64,6 +66,7 @@ const DEFAULTS: YarnSettings = {
 	overflow: "ellipsis",
 	layout: "grid",
 	fabColor: "",
+	tagNames: "",
 	hideChrome: false,
 	cardFont: "system",
 };
@@ -277,6 +280,34 @@ export default class YarnPlugin extends Plugin {
 	 * (shown as "Traits", sub-labels as "Traits/sub") and stores pins/colours as tags like
 	 * "Keep/Pinned" and "Keep/Color/Green"; those become Yarn pins/colours instead of chips.
 	 */
+	private tagNameCache: { src: string; map: Array<[string, string]> } | null = null;
+
+	/**
+	 * Display name for a tag, from the "Label names" setting. The longest matching
+	 * prefix wins, so "Stories/lalkaomilad/Dates" shows as "A Portrait of Lalka by Milād/Dates".
+	 */
+	tagLabel(tag: string): string {
+		const src = this.settings.tagNames;
+		if (!this.tagNameCache || this.tagNameCache.src !== src) {
+			const map: Array<[string, string]> = [];
+			for (const line of src.split(/\r?\n/)) {
+				const i = line.indexOf("=");
+				if (i < 0) continue;
+				const key = line.slice(0, i).trim().replace(/^#/, "").replace(/\/+$/, "").toLowerCase();
+				const name = line.slice(i + 1).trim();
+				if (key && name) map.push([key, name]);
+			}
+			map.sort((a, b) => b[0].length - a[0].length);
+			this.tagNameCache = { src, map };
+		}
+		const lower = tag.toLowerCase();
+		for (const [key, name] of this.tagNameCache.map) {
+			if (lower === key) return name;
+			if (lower.startsWith(key + "/")) return name + tag.slice(key.length);
+		}
+		return tag;
+	}
+
 	getTags(id: string): string[] {
 		const seen = new Map<string, string>();
 		for (const raw of this.rawTags(id)) {
@@ -408,6 +439,7 @@ class YarnView extends ItemView {
 			},
 			getStyle: (id) => p.getStyle(id),
 			getTags: (id) => p.getTags(id),
+			tagLabel: (tag) => p.tagLabel(tag),
 			setStyle: (id, patch) => p.setStyle(id, patch),
 			resolveImage: (link, src) => p.resolveImage(link, src),
 			open: (id, newTab) => {
@@ -540,6 +572,21 @@ class YarnSettingTab extends PluginSettingTab {
 			.setName("Folder")
 			.setDesc("Only show notes inside this folder. Leave empty for the whole vault. New notes still follow Obsidian's “Default location for new notes”.")
 			.addText((t) => t.setPlaceholder("e.g. Notes").setValue(s.folder).onChange(async (v) => ((s.folder = v), await save())));
+
+		new Setting(containerEl)
+			.setName("Label names")
+			.setDesc("Show a short tag under a longer name on cards and in the label list, one per line: Stories/lalkaomilad = A Portrait of Lalka by Milād. Searching still uses the tag itself, and sub-tags carry the name, e.g. Stories/lalkaomilad/Dates.")
+			.addTextArea((t) => {
+				t.setPlaceholder("Stories/lalkaomilad = A Portrait of Lalka by Milād")
+					.setValue(s.tagNames)
+					.onChange(async (v) => {
+						s.tagNames = v;
+						await save(false);
+						this.plugin.forEachView((view) => view.board?.retag());
+					});
+				t.inputEl.rows = 4;
+				t.inputEl.style.width = "100%";
+			});
 
 		new Setting(containerEl)
 			.setName("Excluded folders")

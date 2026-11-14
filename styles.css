@@ -718,6 +718,10 @@ body.yarn-chrome-hidden .yarn-root .yarn-header {
 
 .yarn-root .yarn-tag {
 	flex: none;
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	height: auto;
 	padding: 3px 10px;
 	border: none;
@@ -816,4 +820,21 @@ body.yarn-chrome-hidden .yarn-root .yarn-header {
 .yarn-suggest-count {
 	color: var(--text-muted);
 	font-size: 0.85em;
+}
+
+.yarn-root .yarn-suggest-chip {
+	max-width: 100%;
+	min-width: 0;
+}
+
+.yarn-suggest-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.yarn-root .yarn-tag.is-long {
+	flex: 0 1 auto;
+	min-width: 5em;
 }
