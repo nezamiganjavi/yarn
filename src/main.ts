@@ -74,6 +74,14 @@ export default class YarnPlugin extends Plugin {
 			},
 		});
 		this.addSettingTab(new YarnSettingTab(this.app, this));
+		this.addCommand({
+			id: "copy-layout-report",
+			name: "Copy layout report (for troubleshooting)",
+			callback: async () => {
+				await navigator.clipboard.writeText(this.layoutReport());
+				new Notice("Yarn layout report copied");
+			},
+		});
 
 		const refresh = debounce(() => this.forEachView((v) => void v.board?.refresh()), 400, true);
 		this.app.workspace.onLayoutReady(() => {
@@ -90,15 +98,71 @@ export default class YarnPlugin extends Plugin {
 	}
 
 	onunload(): void {
+		this.reclaimTopSpace(null);
 		document.body.classList.remove(CHROME_CLASS, "yarn-system-font");
 	}
 
 	/** Hide Obsidian's header and bottom bar only while a Yarn board is the active tab. */
 	updateChrome(): void {
 		const active = this.app.workspace.getActiveViewOfType(YarnView);
-		document.body.classList.toggle(CHROME_CLASS, !!active && this.settings.hideChrome);
+		const hide = !!active && this.settings.hideChrome;
+		document.body.classList.toggle(CHROME_CLASS, hide);
 		document.body.classList.toggle("yarn-system-font", this.settings.cardFont === "system");
+		this.reclaimTopSpace(hide ? active : null);
 		this.forEachView((v) => v.board?.updateInsets());
+	}
+
+	private reclaimed: Array<{ el: HTMLElement; padding: string; margin: string }> = [];
+
+	/**
+	 * Obsidian's mobile layout reserves room above each tab for its floating header.
+	 * With the header hidden, that room is empty, so zero the top padding/margin of
+	 * the board's ancestors (restored as soon as the toolbars come back), then add
+	 * back just the phone's status-bar inset ourselves.
+	 */
+	private reclaimTopSpace(view: YarnView | null): void {
+		for (const r of this.reclaimed) {
+			r.el.style.paddingTop = r.padding;
+			r.el.style.marginTop = r.margin;
+		}
+		this.reclaimed = [];
+		document.body.style.removeProperty("--yarn-safe-top");
+		if (!view) return;
+		let e: HTMLElement | null = view.contentEl;
+		while (e && e !== document.body) {
+			const cs = getComputedStyle(e);
+			if (parseFloat(cs.paddingTop) > 0 || parseFloat(cs.marginTop) > 0) {
+				this.reclaimed.push({ el: e, padding: e.style.paddingTop, margin: e.style.marginTop });
+				e.style.setProperty("padding-top", "0px", "important");
+				e.style.setProperty("margin-top", "0px", "important");
+			}
+			e = e.parentElement;
+		}
+		// Measure the status-bar inset (0 when the app doesn't draw under it).
+		const probe = document.body.createDiv();
+		probe.style.cssText = "position:fixed;visibility:hidden;top:0;padding-top:max(env(safe-area-inset-top, 0px), var(--safe-area-inset-top, 0px));";
+		const inset = probe.getBoundingClientRect().height;
+		probe.remove();
+		// Whatever still sits above the board (and isn't status bar) gets no extra padding.
+		const top = view.contentEl.getBoundingClientRect().top;
+		document.body.style.setProperty("--yarn-safe-top", Math.max(0, inset - top) + "px");
+	}
+
+	/** Snapshot of the layout around the board, for troubleshooting on a device. */
+	layoutReport(): string {
+		const view = this.app.workspace.getActiveViewOfType(YarnView) ?? this.app.workspace.getLeavesOfType(VIEW_TYPE)[0]?.view;
+		const lines = [`Yarn ${this.manifest.version} · Obsidian ${(this.app as unknown as { appVersion?: string }).appVersion ?? "?"} · ${window.innerWidth}x${window.innerHeight} @${window.devicePixelRatio}`];
+		lines.push(`toolbars hidden: ${document.body.classList.contains(CHROME_CLASS)}`);
+		let e: HTMLElement | null = view instanceof YarnView ? view.contentEl : null;
+		while (e && e !== document.documentElement) {
+			const cs = getComputedStyle(e);
+			const r = e.getBoundingClientRect();
+			lines.push(`${e.tagName.toLowerCase()}.${[...e.classList].join(".")} top=${Math.round(r.top)} h=${Math.round(r.height)} pad=${cs.paddingTop} mar=${cs.marginTop} pos=${cs.position}`);
+			e = e.parentElement;
+		}
+		const header = document.querySelector(".workspace-leaf.mod-active .view-header");
+		if (header) lines.push(`view-header display=${getComputedStyle(header).display} h=${Math.round(header.getBoundingClientRect().height)}`);
+		return lines.join("\n");
 	}
 
 	/** Height of Obsidian's floating mobile bottom bar, if it is showing. */

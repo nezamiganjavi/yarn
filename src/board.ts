@@ -83,6 +83,10 @@ export class Board {
 	private fab!: HTMLElement;
 
 	private cache = new Map<string, CachedPreview>();
+	/** Built card elements, reused across re-layouts so nothing flashes or re-animates. */
+	private cards = new Map<string, { mtime: number; el: HTMLElement }>();
+	/** Signature of the list currently on screen; unchanged list = no rebuild. */
+	private shownSig = "";
 	private all: NoteRef[] = [];
 	private shown: NoteRef[] = [];
 	private rendered = 0;
@@ -179,6 +183,8 @@ export class Board {
 	/** Forget cached previews (e.g. after the preview-length setting changes). */
 	clearCache(): void {
 		this.cache.clear();
+		this.cards.clear();
+		this.shownSig = "";
 	}
 
 	focusSearch(): void {
@@ -303,6 +309,7 @@ export class Board {
 		const n = this.wantedColumns();
 		if (!force && n === this.colCount) return;
 		const keep = this.rendered;
+		this.shownSig = "";
 		void this.resetColumns().then(() => this.renderUpTo(Math.max(keep, BATCH)));
 	}
 
@@ -369,6 +376,18 @@ export class Board {
 		this.pinnedIds = new Set(pinned.map((n) => n.id));
 		this.pinnedCount = pinned.length;
 		if (pinned.length) this.shown = pinned.concat(this.shown.filter((n) => !this.pinnedIds.has(n.id)));
+		// Nothing moved (e.g. only a colour or property changed): repaint in place instead of rebuilding.
+		const sig = `${this.host.layout}|${this.wantedColumns()}|${pinned.length}|` + this.shown.map((n) => n.id + ":" + n.mtime).join("|");
+		if (sig === this.shownSig && this.rendered > 0) {
+			this.restyle();
+			return;
+		}
+		this.shownSig = sig;
+		// Forget cards for notes that no longer exist.
+		if (!q) {
+			const ids = new Set(this.all.map((n) => n.id));
+			for (const id of this.cards.keys()) if (!ids.has(id)) this.cards.delete(id);
+		}
 		await this.resetColumns();
 		await this.renderUpTo(renderCount);
 		if (!this.shown.length) {
@@ -440,7 +459,14 @@ export class Board {
 	// ---------- cards ----------
 
 	private renderCard(note: NoteRef, p: Preview): HTMLElement {
+		const reuse = this.cards.get(note.id);
+		if (reuse && reuse.mtime === note.mtime) {
+			this.styleCard(reuse.el, note.id);
+			return reuse.el;
+		}
 		const card = el("div", "yarn-card");
+		card.addEventListener("animationend", () => card.classList.add("is-settled"), { once: true });
+		this.cards.set(note.id, { mtime: note.mtime, el: card });
 		card.dataset.id = note.id;
 		card.tabIndex = 0;
 
