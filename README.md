@@ -36,13 +36,10 @@ Changing a colour keeps the note's "last modified" time, so the note doesn't jum
 ## Releasing a new version
 
 1. Bump `version` in `manifest.json` and `package.json`, and add the version to `versions.json`.
-2. Commit, then push a tag with exactly that version, without a leading "v":
+2. Push to `main`. The Release workflow builds the plugin and publishes a GitHub release with `main.js`, `manifest.json` and `styles.css`, tagged with that version.
+3. BRAT on your phone picks up the new version the next time Obsidian starts.
 
-   ```bash
-   git tag 0.2.3 && git push origin 0.2.3
-   ```
-
-3. The Release workflow builds the plugin and attaches `main.js`, `manifest.json` and `styles.css` to a new GitHub release.
+To release by hand, run the Release workflow from the repository's Actions tab.
 
 ## Install on Android (manual)
 

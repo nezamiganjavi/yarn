@@ -1,12 +1,19 @@
-# Push a tag that matches manifest.json's version (e.g. 0.2.3) and this builds
-# the plugin and publishes a GitHub release with main.js, manifest.json and styles.css.
-# BRAT and Obsidian's community plugin updater both install from these releases.
+# Publishes a GitHub release (main.js, manifest.json, styles.css) for the version in
+# manifest.json. BRAT installs and auto-updates Yarn from these releases.
+#
+# Runs when:
+#  - main is pushed with a manifest.json change (bump the version → new release),
+#  - a tag like 0.2.4 is pushed,
+#  - or it is started by hand from the Actions tab.
+# If a release for the current version already exists, it does nothing.
 name: Release
 
 on:
   push:
-    tags:
-      - "*"
+    branches: [main]
+    paths: [manifest.json]
+    tags: ["*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,13 +26,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
-      - run: npm run build
+      - name: Read version
+        id: v
+        run: echo "version=$(node -p "require('./manifest.json').version")" >> "$GITHUB_OUTPUT"
       - name: Check tag matches manifest version
+        if: github.ref_type == 'tag'
         run: |
-          v=$(node -p "require('./manifest.json').version")
-          if [ "$v" != "${GITHUB_REF_NAME}" ]; then echo "Tag ${GITHUB_REF_NAME} != manifest version $v"; exit 1; fi
-      - name: Create release
+          if [ "${{ steps.v.outputs.version }}" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME != manifest version ${{ steps.v.outputs.version }}"; exit 1
+          fi
+      - name: Skip if already released
+        id: exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" main.js manifest.json styles.css --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          if gh release view "${{ steps.v.outputs.version }}" >/dev/null 2>&1; then echo "yes=1" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.exists.outputs.yes != '1'
+        run: npm ci && npm run build
+      - name: Create release
+        if: steps.exists.outputs.yes != '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.v.outputs.version }}" main.js manifest.json styles.css \
+            --target "$GITHUB_SHA" --title "${{ steps.v.outputs.version }}" --generate-notes
