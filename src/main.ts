@@ -72,7 +72,7 @@ export default class JotboardPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("delete", refresh));
 			this.registerEvent(this.app.vault.on("rename", refresh));
 			this.registerEvent(this.app.vault.on("modify", refresh));
-			this.registerEvent(this.app.metadataCache.on("changed", (file) => this.forEachView((v) => v.board?.restyle(file.path))));
+			this.registerEvent(this.app.metadataCache.on("changed", (file) => this.forEachView((v) => v.board?.styleChanged(file.path))));
 			this.registerEvent(this.app.workspace.on("css-change", () => this.forEachView((v) => v.board?.restyle())));
 			if (this.settings.openOnStartup) void this.activate(false);
 		});
@@ -84,13 +84,12 @@ export default class JotboardPlugin extends Plugin {
 		}
 	}
 
-	/** Show the board: reuse an existing one, else take over an empty tab, else open a new tab. */
+	/** Show the board: reuse an existing one, else take over the current tab (Back returns to what was there). */
 	async activate(focus: boolean): Promise<JotboardView | null> {
 		const ws = this.app.workspace;
 		let leaf: WorkspaceLeaf | null = ws.getLeavesOfType(VIEW_TYPE)[0] ?? null;
 		if (!leaf) {
-			const current = ws.getMostRecentLeaf();
-			leaf = current && current.view.getViewType() === "empty" ? current : ws.getLeaf("tab");
+			leaf = ws.getLeaf(false);
 			await leaf.setViewState({ type: VIEW_TYPE, active: true });
 		}
 		await ws.revealLeaf(leaf);
@@ -155,8 +154,15 @@ export default class JotboardPlugin extends Plugin {
 	}
 
 	resolveImage(link: string, sourceId: string): string | null {
-		if (/^https?:\/\//i.test(link)) return link;
-		const dest = this.app.metadataCache.getFirstLinkpathDest(decodeURIComponent(link), sourceId);
+		// Only vault files: never fetch remote images.
+		if (/^[a-z][a-z0-9+.-]*:/i.test(link)) return null;
+		let path = link;
+		try {
+			path = decodeURIComponent(link);
+		} catch {
+			/* not URL-encoded, e.g. "50% off.png" */
+		}
+		const dest = this.app.metadataCache.getFirstLinkpathDest(path, sourceId);
 		return dest && IMAGE_EXT.has(dest.extension.toLowerCase()) ? this.app.vault.getResourcePath(dest) : null;
 	}
 
@@ -168,7 +174,7 @@ export default class JotboardPlugin extends Plugin {
 		for (let i = 1; this.app.vault.getAbstractFileByPath(path); i++) path = normalizePath(`${dir}Untitled ${i}.md`);
 		const file = await this.app.vault.create(path, "");
 		const target = leaf ?? this.app.workspace.getLeaf(false);
-		await target.openFile(file, { active: true, state: { mode: "source" }, eState: { rename: "all" } });
+		await target.openFile(file, { active: true, state: { mode: "source" } });
 		const view = target.view;
 		if (view instanceof MarkdownView) view.editor.focus();
 	}

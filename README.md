@@ -7,9 +7,9 @@ A roomy, card-based home screen for Obsidian, built for phones:
 - **Big + button.** Creates a note in Obsidian's *Default location for new notes* and opens it ready to type.
 - **Colours and wallpapers.** Long-press a card (or right-click it on desktop) to open the sheet. It offers 11 colours, each with light and dark versions, 9 built-in wallpapers, and the option to use any image from your vault as a wallpaper.
 - **Checklists and images in previews.** `- [ ]` tasks show as checkboxes, and the first image embedded in a note appears at the top of its card.
-- **Replaces the landing page.** The board opens when Obsidian starts (you can turn this off in settings). When you open a note, the back button returns you to the board at the same scroll position.
+- **Replaces the landing page.** The board opens when Obsidian starts (you can turn this off in settings). Notes open in the same tab, so Back returns you to the board, and the board tries to restore your scroll position and search.
 
-Everything is generated locally. The plugin makes no network requests.
+Everything is generated locally, and the plugin never loads anything from the internet (remote image links in notes are not shown on cards).
 
 ## Where colours are stored
 

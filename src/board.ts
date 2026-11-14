@@ -81,6 +81,9 @@ export class Board {
 	private colCount = 0;
 	private searchTimer: number | undefined;
 	private suppressClick = false;
+	/** Styles just chosen in the sheet, shown until Obsidian's metadata cache catches up. */
+	private pendingStyle = new Map<string, NoteStyle>();
+	private sheetRepaint: (() => void) | null = null;
 
 	constructor(root: HTMLElement, host: BoardHost) {
 		this.root = root;
@@ -123,6 +126,18 @@ export class Board {
 		this.all = this.host.listNotes();
 		await this.applyFilter(keepCount);
 		this.scroller.scrollTop = keepScroll;
+	}
+
+	/** Call when a note's metadata changed on disk: drops the optimistic style and repaints. */
+	styleChanged(id: string): void {
+		this.pendingStyle.delete(id);
+		this.restyle(id);
+		this.sheetRepaint?.();
+	}
+
+	private styleOf(id: string): NoteStyle {
+		const pending = this.pendingStyle.get(id);
+		return pending ? { ...this.host.getStyle(id), ...pending } : this.host.getStyle(id);
 	}
 
 	/** Re-apply colours/wallpapers (theme change or frontmatter change). */
@@ -313,25 +328,38 @@ export class Board {
 			await this.renderMore(count - this.rendered);
 			if (this.rendered === before) break;
 		}
-		// Keep filling if the screen isn't full yet (sentinel already visible).
-		requestAnimationFrame(() => {
-			if (this.sentinel.getBoundingClientRect().top < this.scroller.getBoundingClientRect().bottom + 600) void this.renderMore();
-		});
 	}
 
 	private async renderMore(max = BATCH): Promise<void> {
 		if (this.loading || this.rendered >= this.shown.length) return;
 		this.loading = true;
 		const gen = this.generation;
-		const slice = this.shown.slice(this.rendered, this.rendered + Math.min(max, BATCH));
-		const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
-		if (gen !== this.generation) return; // layout was reset meanwhile
-		slice.forEach((note, i) => {
-			const card = this.renderCard(note, previews[i]);
-			this.shortestColumn().appendChild(card);
+		try {
+			const slice = this.shown.slice(this.rendered, this.rendered + Math.min(max, BATCH));
+			const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
+			if (gen !== this.generation) return; // layout was reset meanwhile
+			slice.forEach((note, i) => {
+				let card: HTMLElement;
+				try {
+					card = this.renderCard(note, previews[i]);
+				} catch (e) {
+					console.error("Jotboard: failed to render", note.id, e);
+					return;
+				}
+				this.shortestColumn().appendChild(card);
+			});
+			this.rendered += slice.length;
+		} finally {
+			if (gen === this.generation) this.loading = false;
+		}
+		// If the new cards didn't push the sentinel off-screen, the observer won't fire again: keep going.
+		requestAnimationFrame(() => {
+			if (gen === this.generation && this.sentinelNear()) void this.renderMore();
 		});
-		this.rendered += slice.length;
-		this.loading = false;
+	}
+
+	private sentinelNear(): boolean {
+		return this.sentinel.getBoundingClientRect().top < this.scroller.getBoundingClientRect().bottom + 600;
 	}
 
 	private shortestColumn(): HTMLElement {
@@ -388,7 +416,7 @@ export class Board {
 	}
 
 	private styleCard(card: HTMLElement, id: string): void {
-		const style = this.host.getStyle(id);
+		const style = this.styleOf(id);
 		const dark = this.host.isDark();
 		const color = resolveColor(style.color, dark);
 		card.classList.toggle("has-color", !!color);
@@ -482,7 +510,7 @@ export class Board {
 		if (note) el("div", "jb-sheet-title", panel, isPlaceholderTitle(note.title) ? "Untitled note" : note.title);
 
 		const dark = this.host.isDark();
-		const current = () => this.host.getStyle(id);
+		const current = () => this.styleOf(id);
 
 		el("div", "jb-sheet-label", panel, "Colour");
 		const colorRow = el("div", "jb-swatch-row", panel);
@@ -499,10 +527,12 @@ export class Board {
 			});
 		};
 		const apply = async (patch: NoteStyle) => {
-			await this.host.setStyle(id, patch);
+			this.pendingStyle.set(id, { ...this.pendingStyle.get(id), ...patch });
 			this.restyle(id);
 			paint();
+			await this.host.setStyle(id, patch);
 		};
+		this.sheetRepaint = paint;
 
 		const none = el("button", "jb-swatch jb-swatch-none", colorRow);
 		none.dataset.value = "";
@@ -583,6 +613,7 @@ export class Board {
 		if (!this.sheet) return;
 		const s = this.sheet;
 		this.sheet = null;
+		this.sheetRepaint = null;
 		s.classList.remove("is-open");
 		window.setTimeout(() => s.remove(), 180);
 	}
