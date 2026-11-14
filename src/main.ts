@@ -15,6 +15,7 @@ import {
 	setIcon,
 } from "obsidian";
 import { Board, BoardHost, NoteRef, NoteStyle } from "./board";
+import { FAB_PRESETS } from "./palette";
 
 export const VIEW_TYPE = "jotboard-view";
 const COLOR_KEY = "card-color";
@@ -28,6 +29,7 @@ interface JotboardSettings {
 	sort: "modified" | "created" | "name";
 	previewLines: number;
 	layout: "grid" | "list";
+	fabColor: string;
 }
 
 const DEFAULTS: JotboardSettings = {
@@ -37,6 +39,7 @@ const DEFAULTS: JotboardSettings = {
 	sort: "modified",
 	previewLines: 10,
 	layout: "grid",
+	fabColor: "",
 };
 
 interface BoardState {
@@ -243,6 +246,9 @@ class JotboardView extends ItemView {
 			get layout() {
 				return p.settings.layout;
 			},
+			get fabColor() {
+				return p.settings.fabColor;
+			},
 			setLayout: (layout) => {
 				p.settings.layout = layout;
 				void p.saveSettings();
@@ -356,6 +362,37 @@ class JotboardSettingTab extends PluginSettingTab {
 					.setDynamicTooltip()
 					.onChange(async (v) => ((s.previewLines = v), await save())),
 			);
+
+		const fabSetting = new Setting(containerEl)
+			.setName("+ button colour")
+			.setDesc("Pick a preset, or choose any colour with the picker.");
+		const swatches = fabSetting.controlEl.createDiv({ cls: "jb-fab-presets" });
+		let picker: { setValue(v: string): unknown } | null = null;
+		const setFab = async (color: string) => {
+			s.fabColor = color;
+			paintPresets();
+			if (color) picker?.setValue(color);
+			await this.plugin.saveSettings();
+			this.plugin.forEachView((v) => v.board?.applyFabColor());
+		};
+		const paintPresets = () =>
+			swatches.querySelectorAll<HTMLElement>(".jb-fab-preset").forEach((b) =>
+				b.toggleClass("is-selected", (b.dataset.color || "").toLowerCase() === s.fabColor.toLowerCase()),
+			);
+		for (const preset of FAB_PRESETS) {
+			const b = swatches.createEl("button", { cls: "jb-fab-preset", attr: { "aria-label": preset.label, "data-color": preset.color } });
+			if (preset.color) b.style.backgroundColor = preset.color;
+			else b.addClass("is-accent");
+			b.addEventListener("click", () => void setFab(preset.color));
+		}
+		paintPresets();
+		fabSetting.addColorPicker((cp) => {
+			picker = cp;
+			cp.setValue(s.fabColor || "#8e6cef").onChange((v) => {
+				if (v.toLowerCase() !== s.fabColor.toLowerCase()) void setFab(v);
+			});
+		});
+		fabSetting.controlEl.addClass("jb-fab-setting");
 
 		containerEl.createEl("p", {
 			cls: "setting-item-description",

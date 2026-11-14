@@ -41,6 +41,7 @@ If your vault syncs from a computer (Syncthing, Obsidian Sync with plugin syncin
 - **Excluded folders**: hide folders such as Templates.
 - **Sort by**: last edited, created, or name.
 - **Preview lines**: how much of each note appears on its card.
+- **+ button colour**: nine presets plus the theme accent, or any colour from the picker. The + sign switches between white and dark automatically so it stays readable.
 
 ## Development
 

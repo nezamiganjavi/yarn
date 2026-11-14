@@ -2,7 +2,7 @@
 // and in a browser test harness with a mock vault.
 
 import { buildPreview, isPlaceholderTitle, Preview } from "./preview";
-import { COLORS, WALLPAPERS, resolveColor, wallpaperById, wallpaperImageLink } from "./palette";
+import { COLORS, WALLPAPERS, contrastInk, resolveColor, wallpaperById, wallpaperImageLink } from "./palette";
 
 export interface NoteRef {
 	id: string; // vault path
@@ -31,6 +31,8 @@ export interface BoardHost {
 	icon(el: HTMLElement, name: string): void;
 	previewLines: number;
 	layout: "grid" | "list";
+	/** Hex colour for the + button; empty uses the theme accent. */
+	fabColor: string;
 	setLayout(layout: "grid" | "list"): void;
 }
 
@@ -68,6 +70,7 @@ export class Board {
 	private clearBtn!: HTMLElement;
 	private layoutBtn!: HTMLElement;
 	private sheet: HTMLElement | null = null;
+	private fab!: HTMLElement;
 
 	private cache = new Map<string, CachedPreview>();
 	private all: NoteRef[] = [];
@@ -148,6 +151,13 @@ export class Board {
 		});
 	}
 
+	/** Re-read the + button colour from settings. */
+	applyFabColor(): void {
+		const c = (this.host.fabColor || "").trim();
+		this.fab.style.backgroundColor = c;
+		this.fab.style.color = c ? contrastInk(c) : "";
+	}
+
 	/** Forget cached previews (e.g. after the preview-length setting changes). */
 	clearCache(): void {
 		this.cache.clear();
@@ -214,10 +224,11 @@ export class Board {
 		this.columnsEl = el("div", "jb-columns", this.scroller);
 		this.sentinel = el("div", "jb-sentinel", this.scroller);
 
-		const fab = el("button", "jb-fab", r);
+		const fab = (this.fab = el("button", "jb-fab", r));
 		fab.setAttribute("aria-label", "New note");
 		this.host.icon(fab, "plus");
 		fab.addEventListener("click", () => this.host.create());
+		this.applyFabColor();
 
 		this.observer = new IntersectionObserver(
 			(entries) => {

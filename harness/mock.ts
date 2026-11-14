@@ -73,6 +73,7 @@ const host: BoardHost = {
 		el.insertAdjacentHTML("beforeend", svg);
 	},
 	previewLines: 10,
+	fabColor: params.get("fab") ?? "",
 	get layout() {
 		return layout;
 	},

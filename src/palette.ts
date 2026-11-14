@@ -185,3 +185,40 @@ export function wallpaperImageLink(value: string | undefined): string | undefine
 	const m = /^\s*!?\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]\s*$/.exec(String(value));
 	return m ? m[1].trim() : undefined;
 }
+
+// ---------- + button colours ----------
+
+export interface FabPreset {
+	id: string;
+	label: string;
+	/** Empty means "use the theme's accent colour". */
+	color: string;
+}
+
+export const FAB_PRESETS: FabPreset[] = [
+	{ id: "accent", label: "Theme accent", color: "" },
+	{ id: "sunflower", label: "Sunflower", color: "#f6b400" },
+	{ id: "tangerine", label: "Tangerine", color: "#f57c3a" },
+	{ id: "coral", label: "Coral", color: "#e8615a" },
+	{ id: "rose", label: "Rose", color: "#e0558f" },
+	{ id: "violet", label: "Violet", color: "#8e6cef" },
+	{ id: "ocean", label: "Ocean", color: "#3a86e8" },
+	{ id: "teal", label: "Teal", color: "#0f9d8f" },
+	{ id: "forest", label: "Forest", color: "#3c9a5f" },
+	{ id: "graphite", label: "Graphite", color: "#4a4f57" },
+];
+
+/** Pick black or white for the + sign so it stays readable on any button colour. */
+export function contrastInk(hex: string): string {
+	const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex.trim());
+	if (!m) return "#ffffff";
+	let h = m[1];
+	if (h.length === 3) h = h.replace(/./g, "$&$&");
+	const lin = (i: number) => {
+		const c = parseInt(h.slice(i, i + 2), 16) / 255;
+		return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+	};
+	const L = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+	// Prefer white (as in most + buttons) while it keeps at least 3:1 contrast; else dark ink.
+	return 1.05 / (L + 0.05) >= 3 ? "#ffffff" : "#1f1f1f";
+}
