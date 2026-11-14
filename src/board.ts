@@ -23,7 +23,7 @@ export interface BoardHost {
 	setStyle(id: string, patch: NoteStyle): Promise<void>;
 	/** Resolve an image link found in a note (or a wallpaper link) to a URL the webview can load. */
 	resolveImage(link: string, sourceId: string): string | null;
-	open(id: string): void;
+	open(id: string, newTab?: boolean): void;
 	create(): void;
 	remove(id: string): Promise<void>;
 	/** Optional: let the user pick a vault image; returns a wallpaper value like "[[pic.jpg]]". */
@@ -51,6 +51,9 @@ interface CachedPreview {
 
 const BATCH = 24;
 const MIN_CARD = 150;
+/** Above this width (desktop, tablets) cards get a fixed, roomier width and the grid centres. */
+const WIDE = 600;
+const WIDE_CARD = 240;
 const GAP = 10;
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -304,7 +307,8 @@ export class Board {
 	private wantedColumns(): number {
 		if (this.host.layout === "list") return 1;
 		const w = this.scroller.clientWidth - 2 * 12;
-		return Math.max(2, Math.floor((w + GAP) / (MIN_CARD + GAP)));
+		const card = w >= WIDE ? WIDE_CARD : MIN_CARD;
+		return Math.max(2, Math.floor((w + GAP) / (card + GAP)));
 	}
 
 	private relayout(force: boolean): void {
@@ -322,6 +326,9 @@ export class Board {
 		this.colCount = this.wantedColumns();
 		this.columnsEl.replaceChildren();
 		const list = this.host.layout === "list";
+		const wide = this.scroller.clientWidth - 24 >= WIDE;
+		this.root.classList.toggle("is-wide", wide);
+		this.columnsEl.style.maxWidth = wide && !list ? this.colCount * WIDE_CARD + (this.colCount - 1) * GAP + "px" : "";
 		const section = (label: string | null) => {
 			const sec = el("div", "yarn-section", this.columnsEl);
 			if (label) el("div", "yarn-section-label", sec, label);
@@ -575,6 +582,23 @@ export class Board {
 			el("div", "yarn-card-empty", body, "Empty note");
 		}
 
+		// Mouse/trackpad only (hidden by CSS on touch screens): quick pin + colour buttons.
+		const pin = el("button", "yarn-card-tool yarn-card-pin", card);
+		pin.setAttribute("aria-label", "Pin / unpin");
+		this.host.icon(pin, "pin");
+		pin.addEventListener("click", (e) => {
+			e.stopPropagation();
+			void this.togglePin(note.id);
+		});
+		const palette = el("button", "yarn-card-tool yarn-card-palette", card);
+		palette.setAttribute("aria-label", "Colour and wallpaper");
+		this.host.icon(palette, "palette");
+		palette.addEventListener("click", (e) => {
+			e.stopPropagation();
+			this.openSheet(note.id);
+		});
+		for (const b of [pin, palette]) b.addEventListener("pointerdown", (e) => e.stopPropagation());
+
 		this.styleCard(card, note.id);
 		this.bindCard(card, note.id);
 		return card;
@@ -585,6 +609,7 @@ export class Board {
 		const dark = this.host.isDark();
 		const color = resolveColor(style.color, dark);
 		card.classList.toggle("has-color", !!color);
+		card.classList.toggle("is-pinned", !!style.pinned);
 		card.style.backgroundColor = color ?? "";
 
 		const wp = wallpaperById(style.wallpaper);
@@ -626,6 +651,7 @@ export class Board {
 		card.addEventListener("pointerdown", (e) => {
 			if (e.button !== 0) return;
 			this.suppressClick = false; // a new gesture starts fresh
+			if (e.pointerType === "mouse") return; // mouse users right-click instead of long-pressing
 			startX = e.clientX;
 			startY = e.clientY;
 			card.classList.add("is-pressing");
@@ -657,7 +683,14 @@ export class Board {
 				e.preventDefault();
 				return;
 			}
-			this.host.open(id);
+			this.host.open(id, e.ctrlKey || e.metaKey);
+		});
+		// Middle-click opens in a new tab, like links.
+		card.addEventListener("auxclick", (e) => {
+			if (e.button === 1) {
+				e.preventDefault();
+				this.host.open(id, true);
+			}
 		});
 		card.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") this.host.open(id);
@@ -749,11 +782,9 @@ export class Board {
 		const pinBtn = el("button", "yarn-sheet-action", actions);
 		this.host.icon(el("span", "yarn-sheet-action-icon", pinBtn), pinned ? "pin-off" : "pin");
 		el("span", "", pinBtn, pinned ? "Unpin" : "Pin");
-		pinBtn.addEventListener("click", async () => {
+		pinBtn.addEventListener("click", () => {
 			this.closeSheet();
-			this.pendingStyle.set(id, { ...this.pendingStyle.get(id), pinned: !pinned });
-			await this.refresh();
-			await this.host.setStyle(id, { pinned: !pinned });
+			void this.togglePin(id);
 		});
 		const del = el("button", "yarn-sheet-action mod-warning", actions);
 		this.host.icon(el("span", "yarn-sheet-action-icon", del), "trash-2");
@@ -773,8 +804,25 @@ export class Board {
 		overlay.addEventListener("click", (e) => {
 			if (e.target === overlay) this.closeSheet();
 		});
-		requestAnimationFrame(() => overlay.classList.add("is-open"));
+		overlay.tabIndex = -1;
+		overlay.addEventListener("keydown", (e) => {
+			if (e.key === "Escape") {
+				e.stopPropagation();
+				this.closeSheet();
+			}
+		});
+		requestAnimationFrame(() => {
+			overlay.classList.add("is-open");
+			overlay.focus({ preventScroll: true });
+		});
 		this.sheet = overlay;
+	}
+
+	private async togglePin(id: string): Promise<void> {
+		const pinned = !this.styleOf(id).pinned;
+		this.pendingStyle.set(id, { ...this.pendingStyle.get(id), pinned });
+		await this.refresh();
+		await this.host.setStyle(id, { pinned });
 	}
 
 	closeSheet(): void {

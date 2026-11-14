@@ -601,3 +601,114 @@ body.yarn-chrome-hidden .workspace-leaf-content[data-type="yarn-view"] > .view-h
 body.yarn-chrome-hidden .yarn-root .yarn-header {
 	padding-top: calc(10px + var(--yarn-safe-top, 0px));
 }
+
+/* ---------- desktop & tablets ---------- */
+
+.yarn-root.is-wide .yarn-columns {
+	margin: 0 auto;
+}
+
+.yarn-root.is-wide .yarn-header {
+	padding-top: 16px;
+	padding-bottom: 12px;
+}
+
+.yarn-root.is-wide .yarn-search {
+	max-width: 720px;
+	margin: 0 auto;
+}
+
+/* The colour sheet becomes a centred dialog on wide screens. */
+.yarn-root.is-wide .yarn-sheet-overlay {
+	justify-content: center;
+	align-items: center;
+}
+
+.yarn-root.is-wide .yarn-sheet {
+	width: min(460px, 92%);
+	border-radius: 18px;
+	padding-bottom: 16px;
+	transform: translateY(12px) scale(0.98);
+	opacity: 0;
+	transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.yarn-root.is-wide .yarn-sheet-overlay.is-open .yarn-sheet {
+	transform: none;
+	opacity: 1;
+}
+
+.yarn-root.is-wide .yarn-swatch-row {
+	flex-wrap: wrap;
+	overflow: visible;
+}
+
+.yarn-sheet-overlay:focus {
+	outline: none;
+}
+
+/* Hover tools: only for mouse/trackpad, never on touch screens. */
+.yarn-root .yarn-card-tool {
+	display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+	.yarn-root .yarn-card-tool {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: absolute;
+		z-index: 1;
+		width: 30px;
+		height: 30px;
+		padding: 0;
+		border: none;
+		border-radius: 50%;
+		background: transparent;
+		box-shadow: none;
+		color: var(--yarn-ink);
+		opacity: 0;
+		cursor: pointer;
+		transition: opacity 120ms ease, background 120ms ease;
+	}
+
+	.yarn-card-tool svg {
+		width: 17px;
+		height: 17px;
+	}
+
+	.yarn-root .yarn-card-pin {
+		top: 8px;
+		right: 8px;
+	}
+
+	.yarn-root .yarn-card-palette {
+		bottom: 8px;
+		right: 8px;
+	}
+
+	.yarn-card:hover .yarn-card-tool,
+	.yarn-card:focus-within .yarn-card-tool {
+		opacity: 0.7;
+	}
+
+	.yarn-root .yarn-card-tool:hover {
+		opacity: 1;
+		background: rgba(127, 127, 127, 0.18);
+	}
+
+	.yarn-card.is-pinned .yarn-card-pin {
+		opacity: 0.55;
+	}
+
+	/* Leave room so the pin never covers the title. */
+	.yarn-card-title {
+		padding-right: 18px;
+	}
+}
+
+.yarn-root.is-wide .yarn-sheet-handle {
+	visibility: hidden;
+	height: 0;
+	margin-bottom: 14px;
+}

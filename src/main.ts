@@ -4,6 +4,7 @@ import {
 	ItemView,
 	MarkdownView,
 	Notice,
+	Platform,
 	Plugin,
 	PluginSettingTab,
 	Setting,
@@ -114,6 +115,22 @@ export default class YarnPlugin extends Plugin {
 		this.forEachView((v) => v.board?.updateInsets());
 	}
 
+	private sidebarsWereOpen: { left: boolean; right: boolean } | null = null;
+
+	/** Desktop "focus" mode: tuck both sidebars away, and bring back the ones that were open. */
+	toggleSidebars(hide: boolean): void {
+		const { leftSplit, rightSplit } = this.app.workspace;
+		if (hide) {
+			this.sidebarsWereOpen = { left: !leftSplit.collapsed, right: !rightSplit.collapsed };
+			leftSplit.collapse();
+			rightSplit.collapse();
+		} else if (this.sidebarsWereOpen) {
+			if (this.sidebarsWereOpen.left) leftSplit.expand();
+			if (this.sidebarsWereOpen.right) rightSplit.expand();
+			this.sidebarsWereOpen = null;
+		}
+	}
+
 	private reclaimed: Array<{ el: HTMLElement; padding: string; margin: string }> = [];
 
 	/**
@@ -129,7 +146,8 @@ export default class YarnPlugin extends Plugin {
 		}
 		this.reclaimed = [];
 		document.body.style.removeProperty("--yarn-safe-top");
-		if (!view) return;
+		// Desktop has no reserved header space (and the window title bar must stay put).
+		if (!view || !Platform.isMobile) return;
 		let e: HTMLElement | null = view.contentEl;
 		while (e && e !== document.body) {
 			const cs = getComputedStyle(e);
@@ -188,7 +206,10 @@ export default class YarnPlugin extends Plugin {
 		const ws = this.app.workspace;
 		let leaf: WorkspaceLeaf | null = ws.getLeavesOfType(VIEW_TYPE)[0] ?? null;
 		if (!leaf) {
-			leaf = ws.getLeaf(false);
+			// Phone: take over the current tab (Back returns to it). Desktop: never replace an
+			// open note; reuse an empty tab or open a new one.
+			const recent = ws.getMostRecentLeaf();
+			leaf = Platform.isMobile ? ws.getLeaf(false) : recent && recent.view.getViewType() === "empty" ? recent : ws.getLeaf("tab");
 			await leaf.setViewState({ type: VIEW_TYPE, active: true });
 		}
 		await ws.revealLeaf(leaf);
@@ -327,9 +348,11 @@ class YarnView extends ItemView {
 			getStyle: (id) => p.getStyle(id),
 			setStyle: (id, patch) => p.setStyle(id, patch),
 			resolveImage: (link, src) => p.resolveImage(link, src),
-			open: (id) => {
+			open: (id, newTab) => {
 				const f = p.file(id);
-				if (f) void this.leaf.openFile(f, { active: true });
+				if (!f) return;
+				const target = newTab ? this.app.workspace.getLeaf("tab") : this.leaf;
+				void target.openFile(f, { active: true });
 			},
 			create: () => void p.createNote(this.leaf),
 			remove: async (id) => {
@@ -358,6 +381,7 @@ class YarnView extends ItemView {
 			},
 			setChromeHidden: (hidden) => {
 				p.settings.hideChrome = hidden;
+				if (!Platform.isMobile) p.toggleSidebars(hidden);
 				void p.saveSettings();
 				p.updateChrome();
 			},
