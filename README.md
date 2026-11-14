@@ -1,4 +1,4 @@
-# Jotboard
+# Yarn
 
 A roomy, card-based home screen for Obsidian, built for phones:
 
@@ -6,6 +6,8 @@ A roomy, card-based home screen for Obsidian, built for phones:
 - **Search bar.** Searches note titles and text as you type. Separate words must all match.
 - **Big + button.** Creates a note in Obsidian's *Default location for new notes* and opens it ready to type.
 - **Colours and wallpapers.** Long-press a card (or right-click it on desktop) to open the sheet. It offers 11 colours, each with light and dark versions, 9 built-in wallpapers, and the option to use any image from your vault as a wallpaper.
+- **Pin notes.** Long-press a card and tap **Pin**. Pinned notes stay at the top under "Pinned", and everything else goes under "Others".
+- **Hide Obsidian's toolbars.** The ⤢ button in the search bar hides Obsidian's top header and bottom bar while the board is open. Tap it again to bring them back.
 - **Checklists and images in previews.** `- [ ]` tasks show as checkboxes, and the first image embedded in a note appears at the top of its card.
 - **Replaces the landing page.** The board opens when Obsidian starts (you can turn this off in settings). Notes open in the same tab, so Back returns you to the board, and the board tries to restore your scroll position and search.
 
@@ -19,6 +21,7 @@ Colours and wallpapers are saved as properties in the note's frontmatter, so the
 ---
 card-color: mint            # coral, peach, sand, mint, sage, fog, storm, dusk, blossom, clay, chalk, or a hex value like "#ffcc00"
 card-wallpaper: hills       # waves, hills, peaks, night, dots, grid, leaves, confetti, aurora, or "[[some image.jpg]]"
+card-pinned: true
 ---
 ```
 
@@ -26,10 +29,10 @@ Changing a colour keeps the note's "last modified" time, so the note doesn't jum
 
 ## Install on Android (manual)
 
-1. Download `jotboard.zip` (or the three files `main.js`, `manifest.json` and `styles.css` from this repo).
-2. On your phone, open your vault folder with a file manager and go to `.obsidian/plugins/`. Hidden folders must be visible to see `.obsidian`. Create a folder called `jotboard` there.
-3. Put `main.js`, `manifest.json` and `styles.css` inside `.obsidian/plugins/jotboard/`.
-4. In Obsidian, go to **Settings → Community plugins**. Turn off Restricted mode if it's on, tap the refresh icon, and enable **Jotboard**.
+1. Download `yarn.zip` (or the three files `main.js`, `manifest.json` and `styles.css` from this repo).
+2. On your phone, open your vault folder with a file manager and go to `.obsidian/plugins/`. Hidden folders must be visible to see `.obsidian`. Create a folder called `yarn` there. If you installed the earlier "Jotboard" version, delete `.obsidian/plugins/jotboard/`.
+3. Put `main.js`, `manifest.json` and `styles.css` inside `.obsidian/plugins/yarn/`.
+4. In Obsidian, go to **Settings → Community plugins**. Turn off Restricted mode if it's on, tap the refresh icon, and enable **Yarn**.
 5. Restart Obsidian, and the board will be your home screen.
 
 If your vault syncs from a computer (Syncthing, Obsidian Sync with plugin syncing on, etc.), you can do steps 2–3 on the computer instead.
@@ -40,6 +43,8 @@ If your vault syncs from a computer (Syncthing, Obsidian Sync with plugin syncin
 - **Folder**: only show notes in one folder. Leave empty to show the whole vault.
 - **Excluded folders**: hide folders such as Templates.
 - **Sort by**: last edited, created, or name.
+- **Hide Obsidian toolbars**: the same as the button in the search bar.
+- **Card font**: your phone's system font (the default) or Obsidian's interface font.
 - **Preview lines**: how much of each note appears on its card.
 - **+ button colour**: nine presets plus the theme accent, or any colour from the picker. The + sign switches between white and dark automatically so it stays readable.
 

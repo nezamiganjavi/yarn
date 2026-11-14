@@ -13,6 +13,7 @@ export interface NoteRef {
 export interface NoteStyle {
 	color?: string;
 	wallpaper?: string;
+	pinned?: boolean;
 }
 
 export interface BoardHost {
@@ -34,6 +35,11 @@ export interface BoardHost {
 	/** Hex colour for the + button; empty uses the theme accent. */
 	fabColor: string;
 	setLayout(layout: "grid" | "list"): void;
+	/** Optional: hide/show the surrounding app UI (Obsidian's header and bottom bar). */
+	chromeHidden?: boolean;
+	setChromeHidden?(hidden: boolean): void;
+	/** Optional: pixels at the bottom of the screen covered by floating app UI. */
+	bottomInset?(): number;
 }
 
 interface CachedPreview {
@@ -64,6 +70,10 @@ export class Board {
 	private scroller!: HTMLElement;
 	private columnsEl!: HTMLElement;
 	private columns: HTMLElement[] = [];
+	private pinnedColumns: HTMLElement[] = [];
+	private pinnedCount = 0;
+	private pinnedIds = new Set<string>();
+	private chromeBtn: HTMLElement | null = null;
 	private sentinel!: HTMLElement;
 	private statusEl!: HTMLElement;
 	private input!: HTMLInputElement;
@@ -124,6 +134,7 @@ export class Board {
 
 	/** Re-read the note list (after vault changes) while keeping the scroll position. */
 	async refresh(): Promise<void> {
+		this.root.style.setProperty("--yarn-lines", String(this.host.previewLines));
 		const keepScroll = this.scroller.scrollTop;
 		const keepCount = Math.max(this.rendered, BATCH);
 		this.all = this.host.listNotes();
@@ -134,7 +145,8 @@ export class Board {
 	/** Call when a note's metadata changed on disk: drops the optimistic style and repaints. */
 	styleChanged(id: string): void {
 		this.pendingStyle.delete(id);
-		this.restyle(id);
+		if (!!this.styleOf(id).pinned !== this.pinnedIds.has(id)) void this.refresh();
+		else this.restyle(id);
 		this.sheetRepaint?.();
 	}
 
@@ -145,10 +157,16 @@ export class Board {
 
 	/** Re-apply colours/wallpapers (theme change or frontmatter change). */
 	restyle(id?: string): void {
-		const cards = this.columnsEl.querySelectorAll<HTMLElement>(".jb-card");
+		const cards = this.columnsEl.querySelectorAll<HTMLElement>(".yarn-card");
 		cards.forEach((c) => {
 			if (!id || c.dataset.id === id) this.styleCard(c, c.dataset.id!);
 		});
+	}
+
+	/** Lift the + button (and the end of the list) above floating app UI such as Obsidian's bottom bar. */
+	updateInsets(): void {
+		const lift = Math.max(0, Math.round(this.host.bottomInset?.() ?? 0));
+		this.root.style.setProperty("--yarn-bottom-lift", lift + "px");
 	}
 
 	/** Re-read the + button colour from settings. */
@@ -172,20 +190,20 @@ export class Board {
 		this.resizeObs?.disconnect();
 		this.closeSheet();
 		this.root.innerHTML = "";
-		this.root.classList.remove("jb-root");
+		this.root.classList.remove("yarn-root");
 	}
 
 	// ---------- construction ----------
 
 	private build(): void {
 		const r = this.root;
-		r.classList.add("jb-root");
+		r.classList.add("yarn-root");
 
-		const header = el("div", "jb-header", r);
-		const bar = el("div", "jb-search", header);
-		const sIcon = el("span", "jb-search-icon", bar);
+		const header = el("div", "yarn-header", r);
+		const bar = el("div", "yarn-search", header);
+		const sIcon = el("span", "yarn-search-icon", bar);
 		this.host.icon(sIcon, "search");
-		this.input = el("input", "jb-search-input", bar);
+		this.input = el("input", "yarn-search-input", bar);
 		this.input.type = "search";
 		this.input.placeholder = "Search your notes";
 		this.input.setAttribute("enterkeyhint", "search");
@@ -201,7 +219,7 @@ export class Board {
 		this.input.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") this.input.blur();
 		});
-		this.clearBtn = el("button", "jb-icon-btn jb-search-clear", bar);
+		this.clearBtn = el("button", "yarn-icon-btn yarn-search-clear", bar);
 		this.clearBtn.setAttribute("aria-label", "Clear search");
 		this.host.icon(this.clearBtn, "x");
 		this.clearBtn.addEventListener("click", () => {
@@ -210,25 +228,36 @@ export class Board {
 			this.updateClear();
 			void this.applyFilter(BATCH);
 		});
-		this.layoutBtn = el("button", "jb-icon-btn jb-layout-btn", bar);
+		this.layoutBtn = el("button", "yarn-icon-btn yarn-layout-btn", bar);
 		this.layoutBtn.addEventListener("click", () => {
 			this.host.setLayout(this.host.layout === "grid" ? "list" : "grid");
 			this.updateLayoutBtn();
 			this.relayout(true);
 		});
 		this.updateLayoutBtn();
+		if (this.host.setChromeHidden) {
+			const btn = (this.chromeBtn = el("button", "yarn-icon-btn yarn-chrome-btn", bar));
+			btn.addEventListener("click", () => {
+				this.host.setChromeHidden!(!this.host.chromeHidden);
+				this.updateChromeBtn();
+				window.setTimeout(() => this.updateInsets(), 60);
+			});
+			this.updateChromeBtn();
+		}
 		this.updateClear();
+		this.root.style.setProperty("--yarn-lines", String(this.host.previewLines));
 
-		this.scroller = el("div", "jb-scroller", r);
-		this.statusEl = el("div", "jb-status", this.scroller);
-		this.columnsEl = el("div", "jb-columns", this.scroller);
-		this.sentinel = el("div", "jb-sentinel", this.scroller);
+		this.scroller = el("div", "yarn-scroller", r);
+		this.statusEl = el("div", "yarn-status", this.scroller);
+		this.columnsEl = el("div", "yarn-columns", this.scroller);
+		this.sentinel = el("div", "yarn-sentinel", this.scroller);
 
-		const fab = (this.fab = el("button", "jb-fab", r));
+		const fab = (this.fab = el("button", "yarn-fab", r));
 		fab.setAttribute("aria-label", "New note");
 		this.host.icon(fab, "plus");
 		fab.addEventListener("click", () => this.host.create());
 		this.applyFabColor();
+		this.updateInsets();
 
 		this.observer = new IntersectionObserver(
 			(entries) => {
@@ -238,7 +267,10 @@ export class Board {
 		);
 		this.observer.observe(this.sentinel);
 
-		this.resizeObs = new ResizeObserver(() => this.relayout(false));
+		this.resizeObs = new ResizeObserver(() => {
+			this.relayout(false);
+			this.updateInsets();
+		});
 		this.resizeObs.observe(this.scroller);
 	}
 
@@ -251,6 +283,14 @@ export class Board {
 		const grid = this.host.layout === "grid";
 		this.host.icon(this.layoutBtn, grid ? "rows-3" : "layout-grid");
 		this.layoutBtn.setAttribute("aria-label", grid ? "List view" : "Grid view");
+	}
+
+	private updateChromeBtn(): void {
+		if (!this.chromeBtn) return;
+		const hidden = !!this.host.chromeHidden;
+		this.chromeBtn.innerHTML = "";
+		this.host.icon(this.chromeBtn, hidden ? "minimize-2" : "maximize-2");
+		this.chromeBtn.setAttribute("aria-label", hidden ? "Show Obsidian toolbars" : "Hide Obsidian toolbars");
 	}
 
 	private wantedColumns(): number {
@@ -272,9 +312,18 @@ export class Board {
 		this.rendered = 0;
 		this.colCount = this.wantedColumns();
 		this.columnsEl.innerHTML = "";
-		this.columnsEl.classList.toggle("is-list", this.host.layout === "list");
-		this.columns = [];
-		for (let i = 0; i < this.colCount; i++) this.columns.push(el("div", "jb-column", this.columnsEl));
+		const list = this.host.layout === "list";
+		const section = (label: string | null) => {
+			const sec = el("div", "yarn-section", this.columnsEl);
+			if (label) el("div", "yarn-section-label", sec, label);
+			const row = el("div", "yarn-columns-row" + (list ? " is-list" : ""), sec);
+			const cols: HTMLElement[] = [];
+			for (let i = 0; i < this.colCount; i++) cols.push(el("div", "yarn-column", row));
+			return cols;
+		};
+		const hasPinned = this.pinnedCount > 0;
+		this.pinnedColumns = hasPinned ? section("Pinned") : [];
+		this.columns = section(hasPinned ? "Others" : null);
 	}
 
 	// ---------- data ----------
@@ -315,6 +364,11 @@ export class Board {
 			});
 		}
 		if (gen !== this.generation) return;
+		// Pinned notes first, in their usual order.
+		const pinned = this.shown.filter((n) => this.styleOf(n.id).pinned);
+		this.pinnedIds = new Set(pinned.map((n) => n.id));
+		this.pinnedCount = pinned.length;
+		if (pinned.length) this.shown = pinned.concat(this.shown.filter((n) => !this.pinnedIds.has(n.id)));
 		await this.resetColumns();
 		await this.renderUpTo(renderCount);
 		if (!this.shown.length) {
@@ -326,10 +380,10 @@ export class Board {
 		this.statusEl.innerHTML = "";
 		this.statusEl.style.display = text || emptyVault ? "" : "none";
 		if (emptyVault) {
-			const ic = el("div", "jb-empty-icon", this.statusEl);
+			const ic = el("div", "yarn-empty-icon", this.statusEl);
 			this.host.icon(ic, "lightbulb");
-			el("div", "jb-empty-text", this.statusEl, "Notes you add appear here");
-		} else if (text) el("div", "jb-status-text", this.statusEl, text);
+			el("div", "yarn-empty-text", this.statusEl, "Notes you add appear here");
+		} else if (text) el("div", "yarn-status-text", this.statusEl, text);
 	}
 
 	private async renderUpTo(count: number): Promise<void> {
@@ -349,15 +403,19 @@ export class Board {
 			const slice = this.shown.slice(this.rendered, this.rendered + Math.min(max, BATCH));
 			const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
 			if (gen !== this.generation) return; // layout was reset meanwhile
+			const start = this.rendered;
 			slice.forEach((note, i) => {
 				let card: HTMLElement;
 				try {
 					card = this.renderCard(note, previews[i]);
 				} catch (e) {
-					console.error("Jotboard: failed to render", note.id, e);
+					console.error("Yarn: failed to render", note.id, e);
 					return;
 				}
-				this.shortestColumn().appendChild(card);
+				this.shortestColumn(start + i < this.pinnedCount ? this.pinnedColumns : this.columns).appendChild(card);
+				// Fade the bottom of cards whose text runs past the preview height.
+				const content = card.querySelector<HTMLElement>(".yarn-card-content");
+				if (content && content.scrollHeight > content.clientHeight + 2) content.classList.add("is-truncated");
 			});
 			this.rendered += slice.length;
 		} finally {
@@ -373,23 +431,23 @@ export class Board {
 		return this.sentinel.getBoundingClientRect().top < this.scroller.getBoundingClientRect().bottom + 600;
 	}
 
-	private shortestColumn(): HTMLElement {
-		let best = this.columns[0];
-		for (const c of this.columns) if (c.offsetHeight < best.offsetHeight) best = c;
+	private shortestColumn(cols: HTMLElement[]): HTMLElement {
+		let best = cols[0];
+		for (const c of cols) if (c.offsetHeight < best.offsetHeight) best = c;
 		return best;
 	}
 
 	// ---------- cards ----------
 
 	private renderCard(note: NoteRef, p: Preview): HTMLElement {
-		const card = el("div", "jb-card");
+		const card = el("div", "yarn-card");
 		card.dataset.id = note.id;
 		card.tabIndex = 0;
 
 		if (p.image) {
 			const url = this.host.resolveImage(p.image, note.id);
 			if (url) {
-				const img = el("img", "jb-card-image", card);
+				const img = el("img", "yarn-card-image", card);
 				img.loading = "lazy";
 				img.decoding = "async";
 				img.alt = "";
@@ -397,28 +455,28 @@ export class Board {
 				img.addEventListener("error", () => img.remove());
 			}
 		}
-		const body = el("div", "jb-card-body", card);
+		const body = el("div", "yarn-card-body", card);
 		const hideTitle = isPlaceholderTitle(note.title);
-		if (!hideTitle) el("div", "jb-card-title", body, note.title);
+		if (!hideTitle) el("div", "yarn-card-title", body, note.title);
 		if (p.lines.length) {
-			const content = el("div", "jb-card-content", body);
+			const content = el("div", "yarn-card-content", body);
 			for (const line of p.lines) {
 				if (line.kind === "task") {
-					const row = el("div", "jb-line jb-task" + (line.done ? " is-done" : ""), content);
-					const box = el("span", "jb-checkbox", row);
+					const row = el("div", "yarn-line yarn-task" + (line.done ? " is-done" : ""), content);
+					const box = el("span", "yarn-checkbox", row);
 					if (line.done) this.host.icon(box, "check");
-					el("span", "jb-task-text", row, line.text);
+					el("span", "yarn-task-text", row, line.text);
 				} else if (line.kind === "bullet") {
-					el("div", "jb-line jb-bullet", content, line.text);
+					el("div", "yarn-line yarn-bullet", content, line.text);
 				} else if (line.kind === "heading") {
-					el("div", "jb-line jb-heading", content, line.text);
+					el("div", "yarn-line yarn-heading", content, line.text);
 				} else {
-					el("div", "jb-line jb-text", content, line.text);
+					el("div", "yarn-line yarn-text", content, line.text);
 				}
 			}
 			if (p.truncated) content.classList.add("is-truncated");
 		} else if (hideTitle && !p.image) {
-			el("div", "jb-card-empty", body, "Empty note");
+			el("div", "yarn-card-empty", body, "Empty note");
 		}
 
 		this.styleCard(card, note.id);
@@ -515,23 +573,23 @@ export class Board {
 	openSheet(id: string): void {
 		this.closeSheet();
 		const note = this.all.find((n) => n.id === id);
-		const overlay = el("div", "jb-sheet-overlay", this.root);
-		const panel = el("div", "jb-sheet", overlay);
-		el("div", "jb-sheet-handle", panel);
-		if (note) el("div", "jb-sheet-title", panel, isPlaceholderTitle(note.title) ? "Untitled note" : note.title);
+		const overlay = el("div", "yarn-sheet-overlay", this.root);
+		const panel = el("div", "yarn-sheet", overlay);
+		el("div", "yarn-sheet-handle", panel);
+		if (note) el("div", "yarn-sheet-title", panel, isPlaceholderTitle(note.title) ? "Untitled note" : note.title);
 
 		const dark = this.host.isDark();
 		const current = () => this.styleOf(id);
 
-		el("div", "jb-sheet-label", panel, "Colour");
-		const colorRow = el("div", "jb-swatch-row", panel);
-		el("div", "jb-sheet-label", panel, "Wallpaper");
-		const wpRow = el("div", "jb-swatch-row", panel);
+		el("div", "yarn-sheet-label", panel, "Colour");
+		const colorRow = el("div", "yarn-swatch-row", panel);
+		el("div", "yarn-sheet-label", panel, "Wallpaper");
+		const wpRow = el("div", "yarn-swatch-row", panel);
 
 		const paint = () => {
 			const s = current();
-			colorRow.querySelectorAll<HTMLElement>(".jb-swatch").forEach((sw) => sw.classList.toggle("is-selected", (sw.dataset.value || "") === (s.color || "")));
-			wpRow.querySelectorAll<HTMLElement>(".jb-swatch").forEach((sw) => {
+			colorRow.querySelectorAll<HTMLElement>(".yarn-swatch").forEach((sw) => sw.classList.toggle("is-selected", (sw.dataset.value || "") === (s.color || "")));
+			wpRow.querySelectorAll<HTMLElement>(".yarn-swatch").forEach((sw) => {
 				const v = sw.dataset.value || "";
 				const sel = v === "__image" ? !!wallpaperImageLink(s.wallpaper) : v === (s.wallpaper || "");
 				sw.classList.toggle("is-selected", sel);
@@ -545,28 +603,28 @@ export class Board {
 		};
 		this.sheetRepaint = paint;
 
-		const none = el("button", "jb-swatch jb-swatch-none", colorRow);
+		const none = el("button", "yarn-swatch yarn-swatch-none", colorRow);
 		none.dataset.value = "";
 		none.setAttribute("aria-label", "Default");
 		this.host.icon(none, "droplet-off");
 		none.addEventListener("click", () => void apply({ color: undefined }));
 		for (const c of COLORS) {
-			const sw = el("button", "jb-swatch", colorRow);
+			const sw = el("button", "yarn-swatch", colorRow);
 			sw.dataset.value = c.id;
 			sw.setAttribute("aria-label", c.label);
 			sw.style.backgroundColor = dark ? c.dark : c.light;
-			el("span", "jb-swatch-check", sw);
+			el("span", "yarn-swatch-check", sw);
 			sw.addEventListener("click", () => void apply({ color: c.id }));
 		}
 
-		const wpNone = el("button", "jb-swatch jb-swatch-wp jb-swatch-none", wpRow);
+		const wpNone = el("button", "yarn-swatch yarn-swatch-wp yarn-swatch-none", wpRow);
 		wpNone.dataset.value = "";
 		wpNone.setAttribute("aria-label", "No wallpaper");
 		this.host.icon(wpNone, "image-off");
 		wpNone.addEventListener("click", () => void apply({ wallpaper: undefined }));
 		const base = resolveColor(current().color, dark);
 		for (const w of WALLPAPERS) {
-			const sw = el("button", "jb-swatch jb-swatch-wp", wpRow);
+			const sw = el("button", "yarn-swatch yarn-swatch-wp", wpRow);
 			sw.dataset.value = w.id;
 			sw.setAttribute("aria-label", w.label);
 			const css = w.css(dark);
@@ -575,31 +633,34 @@ export class Board {
 			sw.style.backgroundSize = css.repeat === "repeat" ? css.size : "cover";
 			sw.style.backgroundPosition = css.repeat === "repeat" ? css.position : "bottom center";
 			sw.style.backgroundRepeat = css.repeat;
-			el("span", "jb-swatch-check", sw);
+			el("span", "yarn-swatch-check", sw);
 			sw.addEventListener("click", () => void apply({ wallpaper: w.id }));
 		}
 		if (this.host.pickImage) {
-			const pick = el("button", "jb-swatch jb-swatch-wp jb-swatch-image", wpRow);
+			const pick = el("button", "yarn-swatch yarn-swatch-wp yarn-swatch-image", wpRow);
 			pick.dataset.value = "__image";
 			pick.setAttribute("aria-label", "Image from vault");
 			this.host.icon(pick, "image-plus");
-			el("span", "jb-swatch-check", pick);
+			el("span", "yarn-swatch-check", pick);
 			pick.addEventListener("click", async () => {
 				const v = await this.host.pickImage!();
 				if (v) await apply({ wallpaper: v });
 			});
 		}
 
-		const actions = el("div", "jb-sheet-actions", panel);
-		const openBtn = el("button", "jb-sheet-action", actions);
-		this.host.icon(el("span", "jb-sheet-action-icon", openBtn), "file-text");
-		el("span", "", openBtn, "Open");
-		openBtn.addEventListener("click", () => {
+		const actions = el("div", "yarn-sheet-actions", panel);
+		const pinned = !!current().pinned;
+		const pinBtn = el("button", "yarn-sheet-action", actions);
+		this.host.icon(el("span", "yarn-sheet-action-icon", pinBtn), pinned ? "pin-off" : "pin");
+		el("span", "", pinBtn, pinned ? "Unpin" : "Pin");
+		pinBtn.addEventListener("click", async () => {
 			this.closeSheet();
-			this.host.open(id);
+			this.pendingStyle.set(id, { ...this.pendingStyle.get(id), pinned: !pinned });
+			await this.refresh();
+			await this.host.setStyle(id, { pinned: !pinned });
 		});
-		const del = el("button", "jb-sheet-action mod-warning", actions);
-		this.host.icon(el("span", "jb-sheet-action-icon", del), "trash-2");
+		const del = el("button", "yarn-sheet-action mod-warning", actions);
+		this.host.icon(el("span", "yarn-sheet-action-icon", del), "trash-2");
 		const delLabel = el("span", "", del, "Delete");
 		let armed = false;
 		del.addEventListener("click", async () => {

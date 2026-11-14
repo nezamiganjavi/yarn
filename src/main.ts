@@ -17,12 +17,14 @@ import {
 import { Board, BoardHost, NoteRef, NoteStyle } from "./board";
 import { FAB_PRESETS } from "./palette";
 
-export const VIEW_TYPE = "jotboard-view";
+export const VIEW_TYPE = "yarn-view";
 const COLOR_KEY = "card-color";
 const WALLPAPER_KEY = "card-wallpaper";
+const PINNED_KEY = "card-pinned";
+const CHROME_CLASS = "yarn-chrome-hidden";
 const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "svg"]);
 
-interface JotboardSettings {
+interface YarnSettings {
 	openOnStartup: boolean;
 	folder: string;
 	exclude: string;
@@ -30,9 +32,11 @@ interface JotboardSettings {
 	previewLines: number;
 	layout: "grid" | "list";
 	fabColor: string;
+	hideChrome: boolean;
+	cardFont: "system" | "obsidian";
 }
 
-const DEFAULTS: JotboardSettings = {
+const DEFAULTS: YarnSettings = {
 	openOnStartup: true,
 	folder: "",
 	exclude: "",
@@ -40,6 +44,8 @@ const DEFAULTS: JotboardSettings = {
 	previewLines: 10,
 	layout: "grid",
 	fabColor: "",
+	hideChrome: false,
+	cardFont: "system",
 };
 
 interface BoardState {
@@ -47,16 +53,16 @@ interface BoardState {
 	query?: string;
 }
 
-export default class JotboardPlugin extends Plugin {
-	settings!: JotboardSettings;
+export default class YarnPlugin extends Plugin {
+	settings!: YarnSettings;
 	/** Last board state, used as a fallback when the view is re-created. */
 	lastState: BoardState = {};
 
 	async onload(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULTS, await this.loadData());
 
-		this.registerView(VIEW_TYPE, (leaf) => new JotboardView(leaf, this));
-		this.addRibbonIcon("layout-grid", "Open Jotboard", () => void this.activate(true));
+		this.registerView(VIEW_TYPE, (leaf) => new YarnView(leaf, this));
+		this.addRibbonIcon("layout-grid", "Open Yarn", () => void this.activate(true));
 		this.addCommand({ id: "open", name: "Open board", callback: () => void this.activate(true) });
 		this.addCommand({ id: "new-note", name: "New note", callback: () => void this.createNote() });
 		this.addCommand({
@@ -67,7 +73,7 @@ export default class JotboardPlugin extends Plugin {
 				view?.board?.focusSearch();
 			},
 		});
-		this.addSettingTab(new JotboardSettingTab(this.app, this));
+		this.addSettingTab(new YarnSettingTab(this.app, this));
 
 		const refresh = debounce(() => this.forEachView((v) => void v.board?.refresh()), 400, true);
 		this.app.workspace.onLayoutReady(() => {
@@ -77,18 +83,42 @@ export default class JotboardPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("modify", refresh));
 			this.registerEvent(this.app.metadataCache.on("changed", (file) => this.forEachView((v) => v.board?.styleChanged(file.path))));
 			this.registerEvent(this.app.workspace.on("css-change", () => this.forEachView((v) => v.board?.restyle())));
+			this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.updateChrome()));
+			this.registerEvent(this.app.workspace.on("layout-change", () => this.updateChrome()));
 			if (this.settings.openOnStartup) void this.activate(false);
 		});
 	}
 
-	forEachView(fn: (v: JotboardView) => void): void {
+	onunload(): void {
+		document.body.classList.remove(CHROME_CLASS, "yarn-system-font");
+	}
+
+	/** Hide Obsidian's header and bottom bar only while a Yarn board is the active tab. */
+	updateChrome(): void {
+		const active = this.app.workspace.getActiveViewOfType(YarnView);
+		document.body.classList.toggle(CHROME_CLASS, !!active && this.settings.hideChrome);
+		document.body.classList.toggle("yarn-system-font", this.settings.cardFont === "system");
+		this.forEachView((v) => v.board?.updateInsets());
+	}
+
+	/** Height of Obsidian's floating mobile bottom bar, if it is showing. */
+	bottomInset(): number {
+		const nav = document.querySelector<HTMLElement>(".mobile-navbar");
+		if (!nav || document.body.classList.contains(CHROME_CLASS) || getComputedStyle(nav).display === "none") return 0;
+		const r = nav.getBoundingClientRect();
+		if (r.height === 0) return 0;
+		// While Obsidian slides the bar away on scroll, fall back to its own height.
+		return r.top < window.innerHeight ? window.innerHeight - r.top : r.height + 12;
+	}
+
+	forEachView(fn: (v: YarnView) => void): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
-			if (leaf.view instanceof JotboardView) fn(leaf.view);
+			if (leaf.view instanceof YarnView) fn(leaf.view);
 		}
 	}
 
 	/** Show the board: reuse an existing one, else take over the current tab (Back returns to what was there). */
-	async activate(focus: boolean): Promise<JotboardView | null> {
+	async activate(focus: boolean): Promise<YarnView | null> {
 		const ws = this.app.workspace;
 		let leaf: WorkspaceLeaf | null = ws.getLeavesOfType(VIEW_TYPE)[0] ?? null;
 		if (!leaf) {
@@ -97,7 +127,7 @@ export default class JotboardPlugin extends Plugin {
 		}
 		await ws.revealLeaf(leaf);
 		if (focus) ws.setActiveLeaf(leaf, { focus: true });
-		return leaf.view instanceof JotboardView ? leaf.view : null;
+		return leaf.view instanceof YarnView ? leaf.view : null;
 	}
 
 	async saveSettings(): Promise<void> {
@@ -135,7 +165,8 @@ export default class JotboardPlugin extends Plugin {
 		const f = this.file(id);
 		const fm = f ? this.app.metadataCache.getFileCache(f)?.frontmatter : undefined;
 		const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
-		return { color: str(fm?.[COLOR_KEY]), wallpaper: str(fm?.[WALLPAPER_KEY]) };
+		const pin = fm?.[PINNED_KEY];
+		return { color: str(fm?.[COLOR_KEY]), wallpaper: str(fm?.[WALLPAPER_KEY]), pinned: pin === true || pin === "true" };
 	}
 
 	async setStyle(id: string, patch: NoteStyle): Promise<void> {
@@ -151,6 +182,10 @@ export default class JotboardPlugin extends Plugin {
 			(fm) => {
 				if ("color" in patch) set(fm, COLOR_KEY, patch.color);
 				if ("wallpaper" in patch) set(fm, WALLPAPER_KEY, patch.wallpaper);
+				if ("pinned" in patch) {
+					if (patch.pinned) fm[PINNED_KEY] = true;
+					else delete fm[PINNED_KEY];
+				}
 			},
 			{ mtime: f.stat.mtime },
 		);
@@ -183,12 +218,12 @@ export default class JotboardPlugin extends Plugin {
 	}
 }
 
-class JotboardView extends ItemView {
-	plugin: JotboardPlugin;
+class YarnView extends ItemView {
+	plugin: YarnPlugin;
 	board: Board | null = null;
 	private pending: BoardState | null = null;
 
-	constructor(leaf: WorkspaceLeaf, plugin: JotboardPlugin) {
+	constructor(leaf: WorkspaceLeaf, plugin: YarnPlugin) {
 		super(leaf);
 		this.plugin = plugin;
 	}
@@ -249,6 +284,15 @@ class JotboardView extends ItemView {
 			get fabColor() {
 				return p.settings.fabColor;
 			},
+			get chromeHidden() {
+				return p.settings.hideChrome;
+			},
+			setChromeHidden: (hidden) => {
+				p.settings.hideChrome = hidden;
+				void p.saveSettings();
+				p.updateChrome();
+			},
+			bottomInset: () => p.bottomInset(),
 			setLayout: (layout) => {
 				p.settings.layout = layout;
 				void p.saveSettings();
@@ -256,6 +300,7 @@ class JotboardView extends ItemView {
 		};
 		this.contentEl.empty();
 		this.board = new Board(this.contentEl, host);
+		p.updateChrome();
 		await this.board.restore(this.pending ?? p.lastState);
 		this.pending = null;
 		// Android back button closes the colour sheet first.
@@ -274,6 +319,7 @@ class JotboardView extends ItemView {
 			this.board.destroy();
 			this.board = null;
 		}
+		this.plugin.updateChrome();
 	}
 }
 
@@ -310,9 +356,9 @@ class ImagePicker extends FuzzySuggestModal<TFile> {
 	}
 }
 
-class JotboardSettingTab extends PluginSettingTab {
-	plugin: JotboardPlugin;
-	constructor(app: App, plugin: JotboardPlugin) {
+class YarnSettingTab extends PluginSettingTab {
+	plugin: YarnPlugin;
+	constructor(app: App, plugin: YarnPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -345,11 +391,36 @@ class JotboardSettingTab extends PluginSettingTab {
 			.setDesc("Comma-separated folders to hide, e.g. Templates, Archive.")
 			.addTextArea((t) => t.setValue(s.exclude).onChange(async (v) => ((s.exclude = v), await save())));
 
+		new Setting(containerEl)
+			.setName("Hide Obsidian toolbars")
+			.setDesc("While the board is open, hide Obsidian's top header and bottom bar. You can also toggle this from the button in the search bar.")
+			.addToggle((t) =>
+				t.setValue(s.hideChrome).onChange(async (v) => {
+					s.hideChrome = v;
+					await save(false);
+					this.plugin.updateChrome();
+				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Card font")
+			.setDesc("Your phone's system font (airier, like most note apps) or Obsidian's interface font.")
+			.addDropdown((d) =>
+				d
+					.addOptions({ system: "System font", obsidian: "Obsidian font" })
+					.setValue(s.cardFont)
+					.onChange(async (v) => {
+						s.cardFont = v as YarnSettings["cardFont"];
+						await save(false);
+						this.plugin.updateChrome();
+					}),
+			);
+
 		new Setting(containerEl).setName("Sort by").addDropdown((d) =>
 			d
 				.addOptions({ modified: "Last edited", created: "Created", name: "Name" })
 				.setValue(s.sort)
-				.onChange(async (v) => ((s.sort = v as JotboardSettings["sort"]), await save())),
+				.onChange(async (v) => ((s.sort = v as YarnSettings["sort"]), await save())),
 		);
 
 		new Setting(containerEl)
@@ -366,7 +437,7 @@ class JotboardSettingTab extends PluginSettingTab {
 		const fabSetting = new Setting(containerEl)
 			.setName("+ button colour")
 			.setDesc("Pick a preset, or choose any colour with the picker.");
-		const swatches = fabSetting.controlEl.createDiv({ cls: "jb-fab-presets" });
+		const swatches = fabSetting.controlEl.createDiv({ cls: "yarn-fab-presets" });
 		let picker: { setValue(v: string): unknown } | null = null;
 		const setFab = async (color: string) => {
 			s.fabColor = color;
@@ -376,11 +447,11 @@ class JotboardSettingTab extends PluginSettingTab {
 			this.plugin.forEachView((v) => v.board?.applyFabColor());
 		};
 		const paintPresets = () =>
-			swatches.querySelectorAll<HTMLElement>(".jb-fab-preset").forEach((b) =>
+			swatches.querySelectorAll<HTMLElement>(".yarn-fab-preset").forEach((b) =>
 				b.toggleClass("is-selected", (b.dataset.color || "").toLowerCase() === s.fabColor.toLowerCase()),
 			);
 		for (const preset of FAB_PRESETS) {
-			const b = swatches.createEl("button", { cls: "jb-fab-preset", attr: { "aria-label": preset.label, "data-color": preset.color } });
+			const b = swatches.createEl("button", { cls: "yarn-fab-preset", attr: { "aria-label": preset.label, "data-color": preset.color } });
 			if (preset.color) b.style.backgroundColor = preset.color;
 			else b.addClass("is-accent");
 			b.addEventListener("click", () => void setFab(preset.color));
@@ -392,11 +463,11 @@ class JotboardSettingTab extends PluginSettingTab {
 				if (v.toLowerCase() !== s.fabColor.toLowerCase()) void setFab(v);
 			});
 		});
-		fabSetting.controlEl.addClass("jb-fab-setting");
+		fabSetting.controlEl.addClass("yarn-fab-setting");
 
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
-			text: `Long-press a card to colour it or give it a wallpaper. These are stored in the note's properties as “${COLOR_KEY}” and “${WALLPAPER_KEY}”, so they sync with the note.`,
+			text: `Long-press a card to colour it or give it a wallpaper. These, and pins, are stored in the note's properties as “${COLOR_KEY}”, “${WALLPAPER_KEY}” and “${PINNED_KEY}”, so they sync with the note.`,
 		});
 	}
 }

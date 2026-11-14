@@ -9,6 +9,10 @@ const ICONS: Record<string, string> = {
 	"rows-3": '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M21 9H3M21 15H3"/>',
 	"layout-grid": '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
 	check: '<path d="M20 6 9 17l-5-5"/>',
+	"maximize-2": '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
+	"minimize-2": '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
+	pin: '<path d="M12 17v5M9 10.8V4h6v6.8l3 3.2v3H6v-3z"/>',
+	"pin-off": '<path d="M2 2l20 20M12 17v5M9 9v1.8L6 14v3h11M15 9.3V4H9"/>',
 	lightbulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4"/>',
 	"droplet-off": '<path d="M18.7 13.3a6.9 6.9 0 0 0-1.8-3.8L12 4.5 9.6 6.9M6.2 9.4A7 7 0 0 0 5 13a7 7 0 0 0 12.1 4.9M2 2l20 20"/>',
 	"image-off": '<path d="M2 2l20 20M10.4 3H19a2 2 0 0 1 2 2v8.6M21 21H5a2 2 0 0 1-2-2V5"/>',
@@ -18,7 +22,7 @@ const ICONS: Record<string, string> = {
 };
 
 const NOTES: Array<{ title: string; body: string; style?: NoteStyle }> = [
-	{ title: "Groceries", body: "- [ ] Oat milk\n- [ ] Bananas\n- [x] Coffee beans\n- [ ] Sourdough\n- [x] Eggs\n- [ ] Spinach", style: { color: "sand" } },
+	{ title: "Groceries", body: "- [ ] Oat milk\n- [ ] Bananas\n- [x] Coffee beans\n- [ ] Sourdough\n- [x] Eggs\n- [ ] Spinach", style: { color: "sand", pinned: true } },
 	{ title: "Trip ideas", body: "Lisbon in spring — tram 28, pastéis de nata at **Manteigaria**.\n\nPorto after: port cellars + the bookshop.", style: { color: "fog", wallpaper: "waves" } },
 	{ title: "Untitled 2", body: "Call the dentist back about Thursday", style: undefined },
 	{ title: "Book list", body: "## Reading\n- Piranesi\n- The Dispossessed\n## Next\n- Hyperion\n- Annihilation\n- A Psalm for the Wild-Built" },
@@ -26,6 +30,7 @@ const NOTES: Array<{ title: string; body: string; style?: NoteStyle }> = [
 	{ title: "Gift ideas", body: "Alex — fountain pen\nSam — climbing shoes?\nJo — that ceramics class", style: { color: "coral" } },
 	{ title: "Weekend", body: "- [ ] Fix the bike tyre\n- [ ] Laundry\n- [ ] Plant the basil", style: { wallpaper: "night", color: "storm" } },
 	{ title: "Quotes", body: "> The best way out is always through.\n\n> Simplicity is the ultimate sophistication.", style: { color: "dusk" } },
+	{ title: "Long thoughts", body: "Sections could be organized by conversations with people\n\nRana with the \"Can we talk?\"\n\nSamara with the \"It happens a lot these days\" and a long tail of text that keeps going so we can see how the card cuts off when the note is much longer than the preview allows, which should fade out gently rather than stretching the card.\n\nMore paragraphs here." },
 	{ title: "Meeting notes 11/12", body: "Roadmap review. Decided to ship v2 search first, then sync. [[Q1 planning]] needs updates by Friday. Owner: me.\n\nFollow-ups: ask design about the empty state, confirm budget." },
 	{ title: "Recipe: dal", body: "1 cup red lentils\n3 cups water\nTurmeric, cumin, garlic, ginger\nTemper with ghee + mustard seeds", style: { color: "peach", wallpaper: "hills" } },
 	{ title: "Run log", body: "Mon 5k 27:10\nWed 8k 44:02\nSat 12k 1:08:30", style: { wallpaper: "grid" } },
@@ -51,7 +56,7 @@ for (let i = 0; i < count; i++) {
 	const id = `Notes/${title}.md`;
 	notes.push({ id, title, mtime: now - i * 3600_000 });
 	bodies.set(id, n.body);
-	if (n.style) styles.set(id, { ...n.style });
+	if (n.style) styles.set(id, { ...n.style, pinned: i < NOTES.length && n.style.pinned });
 }
 
 let layout: "grid" | "list" = (params.get("layout") as "list") || "grid";
@@ -78,6 +83,12 @@ const host: BoardHost = {
 		return layout;
 	},
 	setLayout: (l) => (layout = l),
+	chromeHidden: false,
+	setChromeHidden(h) {
+		this.chromeHidden = h;
+		log("chrome hidden: " + h);
+	},
+	bottomInset: () => Number(params.get("inset") ?? 0),
 };
 
 const root = document.getElementById("app") as HTMLElement;

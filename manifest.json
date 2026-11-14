@@ -1,9 +1,9 @@
 {
-  "id": "jotboard",
-  "name": "Jotboard",
-  "version": "0.1.0",
+  "id": "yarn",
+  "name": "Yarn",
+  "version": "0.2.0",
   "minAppVersion": "1.7.2",
   "description": "A roomy, card-based home screen for your notes: masonry grid, instant search, a big + button, and per-note colours and wallpapers.",
-  "author": "Jotboard contributors",
+  "author": "Yarn contributors",
   "isDesktopOnly": false
 }

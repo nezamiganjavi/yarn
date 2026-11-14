@@ -1,6 +1,6 @@
 {
-  "name": "jotboard",
-  "version": "0.1.0",
+  "name": "obsidian-yarn",
+  "version": "0.2.0",
   "description": "Card-based home view for Obsidian (mobile-first)",
   "main": "main.js",
   "scripts": {
