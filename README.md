@@ -27,6 +27,23 @@ card-pinned: true
 
 Changing a colour keeps the note's "last modified" time, so the note doesn't jump to the top of the board.
 
+## Install with auto-updates (BRAT)
+
+1. In Obsidian, install **BRAT** from Community plugins and enable it.
+2. Open BRAT's settings, tap **Add beta plugin**, and enter `nezamiganjavi/yarn`. If the repository is private, first add a GitHub token in BRAT's settings: a fine-grained token for this repository with read-only "Contents" access.
+3. BRAT installs the latest release and checks for updates when Obsidian starts.
+
+## Releasing a new version
+
+1. Bump `version` in `manifest.json` and `package.json`, and add the version to `versions.json`.
+2. Commit, then push a tag with exactly that version, without a leading "v":
+
+   ```bash
+   git tag 0.2.3 && git push origin 0.2.3
+   ```
+
+3. The Release workflow builds the plugin and attaches `main.js`, `manifest.json` and `styles.css` to a new GitHub release.
+
 ## Install on Android (manual)
 
 1. Download `yarn.zip` (or the three files `main.js`, `manifest.json` and `styles.css` from this repo).

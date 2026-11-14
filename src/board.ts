@@ -197,7 +197,7 @@ export class Board {
 		this.observer?.disconnect();
 		this.resizeObs?.disconnect();
 		this.closeSheet();
-		this.root.innerHTML = "";
+		this.root.replaceChildren();
 		this.root.classList.remove("yarn-root");
 	}
 
@@ -287,7 +287,7 @@ export class Board {
 	}
 
 	private updateLayoutBtn(): void {
-		this.layoutBtn.innerHTML = "";
+		this.layoutBtn.replaceChildren();
 		const grid = this.host.layout === "grid";
 		this.host.icon(this.layoutBtn, grid ? "rows-3" : "layout-grid");
 		this.layoutBtn.setAttribute("aria-label", grid ? "List view" : "Grid view");
@@ -296,7 +296,7 @@ export class Board {
 	private updateChromeBtn(): void {
 		if (!this.chromeBtn) return;
 		const hidden = !!this.host.chromeHidden;
-		this.chromeBtn.innerHTML = "";
+		this.chromeBtn.replaceChildren();
 		this.host.icon(this.chromeBtn, hidden ? "minimize-2" : "maximize-2");
 		this.chromeBtn.setAttribute("aria-label", hidden ? "Show Obsidian toolbars" : "Hide Obsidian toolbars");
 	}
@@ -320,7 +320,7 @@ export class Board {
 		this.loading = false;
 		this.rendered = 0;
 		this.colCount = this.wantedColumns();
-		this.columnsEl.innerHTML = "";
+		this.columnsEl.replaceChildren();
 		const list = this.host.layout === "list";
 		const section = (label: string | null) => {
 			const sec = el("div", "yarn-section", this.columnsEl);
@@ -398,7 +398,7 @@ export class Board {
 	}
 
 	private setStatus(text: string, emptyVault = false): void {
-		this.statusEl.innerHTML = "";
+		this.statusEl.replaceChildren();
 		this.statusEl.style.display = text || emptyVault ? "" : "none";
 		if (emptyVault) {
 			const ic = el("div", "yarn-empty-icon", this.statusEl);
