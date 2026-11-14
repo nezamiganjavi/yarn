@@ -52,6 +52,8 @@ interface CachedPreview {
 }
 
 const BATCH = 24;
+/** Search words that mean "notes without any tags". */
+const UNTAGGED = new Set(["#unlabelled", "#unlabeled", "#untagged", "#notags"]);
 const MIN_CARD = 150;
 /** Above this width (desktop, tablets) cards get a fixed, roomier width and the grid centres. */
 const WIDE = 600;
@@ -88,6 +90,7 @@ export class Board {
 	private layoutBtn!: HTMLElement;
 	private sheet: HTMLElement | null = null;
 	private fab!: HTMLElement;
+	private suggest!: HTMLElement;
 
 	private cache = new Map<string, CachedPreview>();
 	/** Built card elements, reused across re-layouts so nothing flashes or re-animates. */
@@ -223,7 +226,11 @@ export class Board {
 		this.input.type = "search";
 		this.input.placeholder = "Search your notes";
 		this.input.setAttribute("enterkeyhint", "search");
+		this.input.addEventListener("focus", () => this.showSuggestions());
+		this.input.addEventListener("blur", () => window.setTimeout(() => this.hideSuggestions(), 150));
 		this.input.addEventListener("input", () => {
+			if (this.input.value) this.hideSuggestions();
+			else this.showSuggestions();
 			this.updateClear();
 			window.clearTimeout(this.searchTimer);
 			this.searchTimer = window.setTimeout(() => {
@@ -235,6 +242,8 @@ export class Board {
 		this.input.addEventListener("keydown", (e) => {
 			if (e.key === "Enter") this.input.blur();
 		});
+		this.suggest = el("div", "yarn-suggest", header);
+		this.suggest.style.display = "none";
 		this.clearBtn = el("button", "yarn-icon-btn yarn-search-clear", bar);
 		this.clearBtn.setAttribute("aria-label", "Clear search");
 		this.host.icon(this.clearBtn, "x");
@@ -381,16 +390,23 @@ export class Board {
 			}
 			this.shown = this.all.filter((n) => {
 				const text = this.cache.get(n.id)?.preview.searchText ?? n.title.toLowerCase();
-				return terms.every((t) => {
-					// "#tag" matches the note's tags (and nested ones like #tag/sub), not just text.
-					if (t.startsWith("#") && t.length > 1 && this.host.getTags) {
+				return terms.every((term) => {
+					// "-word" / "-#tag" excludes notes that match.
+					const negate = term.length > 1 && term.startsWith("-");
+					const t = negate ? term.slice(1) : term;
+					let hit: boolean;
+					if (UNTAGGED.has(t) && this.host.getTags) {
+						// "#unlabelled": notes with no tags (Keep's colour/pin tags don't count).
+						hit = this.host.getTags(n.id).length === 0;
+					} else if (t.startsWith("#") && t.length > 1 && this.host.getTags) {
+						// "#tag" matches the note's tags (and nested ones like #tag/sub), not just text.
 						const want = t.slice(1);
-						return this.host.getTags(n.id).some((g) => {
+						hit = this.host.getTags(n.id).some((g) => {
 							const tag = g.toLowerCase();
 							return tag === want || tag.startsWith(want + "/");
 						});
-					}
-					return text.includes(t);
+					} else hit = text.includes(t);
+					return negate ? !hit : hit;
 				});
 			});
 		}
@@ -638,6 +654,46 @@ export class Board {
 				this.search("#" + tag);
 			});
 		}
+	}
+
+	/** Under an empty, focused search bar: "Unlabelled" plus every tag, Keep-style. */
+	private showSuggestions(): void {
+		if (!this.host.getTags || this.input.value) return;
+		const counts = new Map<string, { name: string; n: number }>();
+		for (const note of this.all) {
+			for (const t of this.host.getTags(note.id)) {
+				const k = t.toLowerCase();
+				const e = counts.get(k) ?? { name: t, n: 0 };
+				e.n++;
+				counts.set(k, e);
+			}
+		}
+		this.suggest.replaceChildren();
+		el("div", "yarn-suggest-label", this.suggest, "Labels");
+		const row = el("div", "yarn-suggest-chips", this.suggest);
+		const chip = (label: string, query: string, icon: string, n?: number) => {
+			const b = el("button", "yarn-suggest-chip", row);
+			this.host.icon(el("span", "yarn-suggest-icon", b), icon);
+			el("span", "", b, label);
+			if (n !== undefined) el("span", "yarn-suggest-count", b, String(n));
+			// Keep focus in the input until the click lands.
+			b.addEventListener("pointerdown", (e) => e.preventDefault());
+			b.addEventListener("click", () => {
+				this.hideSuggestions();
+				this.search(query);
+				this.input.blur();
+			});
+		};
+		const untagged = this.all.filter((n) => this.host.getTags!(n.id).length === 0).length;
+		chip("Unlabelled", "#unlabelled", "tag", untagged);
+		[...counts.values()]
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.forEach((t) => chip(t.name, "#" + t.name, "tag", t.n));
+		this.suggest.style.display = "";
+	}
+
+	private hideSuggestions(): void {
+		this.suggest.style.display = "none";
 	}
 
 	/** Put text in the search bar and run it. */
