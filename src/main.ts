@@ -30,6 +30,7 @@ interface YarnSettings {
 	exclude: string;
 	sort: "modified" | "created" | "name";
 	previewLines: number;
+	overflow: "ellipsis" | "fade" | "none";
 	layout: "grid" | "list";
 	fabColor: string;
 	hideChrome: boolean;
@@ -42,6 +43,7 @@ const DEFAULTS: YarnSettings = {
 	exclude: "",
 	sort: "modified",
 	previewLines: 10,
+	overflow: "ellipsis",
 	layout: "grid",
 	fabColor: "",
 	hideChrome: false,
@@ -342,6 +344,9 @@ class YarnView extends ItemView {
 			get previewLines() {
 				return p.settings.previewLines;
 			},
+			get overflow() {
+				return p.settings.overflow;
+			},
 			get layout() {
 				return p.settings.layout;
 			},
@@ -496,6 +501,16 @@ class YarnSettingTab extends PluginSettingTab {
 					.setValue(s.previewLines)
 					.setDynamicTooltip()
 					.onChange(async (v) => ((s.previewLines = v), await save())),
+			);
+
+		new Setting(containerEl)
+			.setName("Long note indicator")
+			.setDesc("How a card shows that its note continues past the preview.")
+			.addDropdown((d) =>
+				d
+					.addOptions({ ellipsis: "Three dots …", fade: "Fade out", none: "None" })
+					.setValue(s.overflow)
+					.onChange(async (v) => ((s.overflow = v as YarnSettings["overflow"]), await save())),
 			);
 
 		const fabSetting = new Setting(containerEl)

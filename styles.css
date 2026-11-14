@@ -253,13 +253,18 @@ body.yarn-system-font .yarn-root {
 	line-height: 1.42;
 	color: var(--yarn-body-ink);
 	overflow-wrap: anywhere;
-	max-height: calc(var(--yarn-lines) * 1.42em);
 	overflow: hidden;
 }
 
-.yarn-card-content.is-truncated {
-	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.1em), transparent);
-	mask-image: linear-gradient(to bottom, #000 calc(100% - 1.1em), transparent);
+.yarn-card-content.mode-fade {
+	-webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--yarn-fade, 2em)), transparent);
+	mask-image: linear-gradient(to bottom, #000 calc(100% - var(--yarn-fade, 2em)), transparent);
+}
+
+.yarn-card-content .is-clamped {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
 }
 
 .yarn-line + .yarn-line {

@@ -22,6 +22,8 @@ const ICONS: Record<string, string> = {
 };
 
 const NOTES: Array<{ title: string; body: string; style?: NoteStyle }> = [
+	{ title: "Learning bulgarian after the second date", body: "They show each other letters on the fourth date?\n\n- Milad cooks for her so that she has food for starting her week but realizes the food won't keep that long and panics like (I realized it was Wednesday, and her shift was only starting next Monday. The food would never keep that long.)\n- Another bullet" },
+	{ title: "What the story has to do", body: "-Tragic, engaging story with arc\n\n-PRIORITY: Show Lalka as beautiful / Make the reader fall in love with Lalka\nBody\nSoul\nfor each, should be named later, but should be clear\n\n-Erotic poetry and distillation of desire\n\n-Tell the truth" },
 	{ title: "Groceries", body: "- [ ] Oat milk\n- [ ] Bananas\n- [x] Coffee beans\n- [ ] Sourdough\n- [x] Eggs\n- [ ] Spinach", style: { color: "sand", pinned: true } },
 	{ title: "Trip ideas", body: "Lisbon in spring — tram 28, pastéis de nata at **Manteigaria**.\n\nPorto after: port cellars + the bookshop.", style: { color: "fog", wallpaper: "waves" } },
 	{ title: "Untitled 2", body: "Call the dentist back about Thursday", style: undefined },
@@ -77,7 +79,8 @@ const host: BoardHost = {
 		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="svg-icon">${ICONS[name] ?? ""}</svg>`;
 		el.insertAdjacentHTML("beforeend", svg);
 	},
-	previewLines: 10,
+	previewLines: Number(params.get("lines") ?? 10),
+	overflow: (params.get("overflow") as "fade") || "ellipsis",
 	fabColor: params.get("fab") ?? "",
 	get layout() {
 		return layout;

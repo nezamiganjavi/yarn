@@ -31,6 +31,8 @@ export interface BoardHost {
 	isDark(): boolean;
 	icon(el: HTMLElement, name: string): void;
 	previewLines: number;
+	/** How a card shows that its note continues: "…", a fade, or nothing. */
+	overflow: "ellipsis" | "fade" | "none";
 	layout: "grid" | "list";
 	/** Hex colour for the + button; empty uses the theme accent. */
 	fabColor: string;
@@ -432,9 +434,7 @@ export class Board {
 					return;
 				}
 				this.shortestColumn(start + i < this.pinnedCount ? this.pinnedColumns : this.columns).appendChild(card);
-				// Fade the bottom of cards whose text runs past the preview height.
-				const content = card.querySelector<HTMLElement>(".yarn-card-content");
-				if (content && content.scrollHeight > content.clientHeight + 2) content.classList.add("is-truncated");
+				this.fitContent(card);
 			});
 			this.rendered += slice.length;
 		} finally {
@@ -448,6 +448,76 @@ export class Board {
 
 	private sentinelNear(): boolean {
 		return this.sentinel.getBoundingClientRect().top < this.scroller.getBoundingClientRect().bottom + 600;
+	}
+
+	/**
+	 * Cut the preview at a whole line (never mid-line), then mark the cut with
+	 * an ellipsis, a fade, or nothing, per the user's setting. Runs after the card
+	 * is in the page so lines can be measured.
+	 */
+	private fitContent(card: HTMLElement): void {
+		const content = card.querySelector<HTMLElement>(".yarn-card-content");
+		if (!content) return;
+		const mode = this.host.overflow;
+		const items = Array.from(content.children) as HTMLElement[];
+		// Reset any previous fit (cards are reused across re-layouts).
+		content.classList.remove("is-truncated", "mode-fade");
+		content.querySelectorAll(".yarn-more").forEach((m) => m.remove());
+		for (const it of items) {
+			it.style.display = "";
+			for (const t of [it, it.querySelector<HTMLElement>(".yarn-task-text")]) {
+				if (!t) continue;
+				t.classList.remove("is-clamped");
+				t.style.removeProperty("-webkit-line-clamp");
+				t.style.maxHeight = "";
+			}
+		}
+		const lh = parseFloat(getComputedStyle(content).lineHeight) || 20;
+		const limit = this.host.previewLines * lh;
+		const top0 = content.getBoundingClientRect().top;
+		let cut = content.dataset.more === "1";
+		let last: HTMLElement | null = null;
+		let clamped = false;
+		for (const it of items) {
+			if (clamped) {
+				it.style.display = "none";
+				continue;
+			}
+			const r = it.getBoundingClientRect();
+			if (r.bottom - top0 <= limit + 1) {
+				last = it;
+				continue;
+			}
+			cut = true;
+			clamped = true;
+			const lines = Math.floor((limit - (r.top - top0)) / lh + 0.05);
+			if (lines < 1) {
+				it.style.display = "none";
+				continue;
+			}
+			const target = it.querySelector<HTMLElement>(".yarn-task-text") ?? it;
+			if (mode === "ellipsis") {
+				target.classList.add("is-clamped");
+				target.style.setProperty("-webkit-line-clamp", String(lines));
+			} else {
+				target.style.maxHeight = lines * lh + "px";
+				target.style.overflow = "hidden";
+				target.style.display = target === it ? "block" : "inline-block";
+			}
+			last = it;
+		}
+		if (!cut || !last) return;
+		if (mode === "fade") {
+			content.classList.add("is-truncated", "mode-fade");
+			content.style.setProperty("--yarn-fade", Math.round(lh * 1.8) + "px");
+		} else if (mode === "ellipsis" && !last.querySelector(".is-clamped") && !last.classList.contains("is-clamped")) {
+			// Cut fell between paragraphs: end the last visible line with "…".
+			const target = last.querySelector<HTMLElement>(".yarn-task-text") ?? last;
+			const more = document.createElement("span");
+			more.className = "yarn-more";
+			more.textContent = " …";
+			target.appendChild(more);
+		}
 	}
 
 	private shortestColumn(cols: HTMLElement[]): HTMLElement {
@@ -500,7 +570,7 @@ export class Board {
 					el("div", "yarn-line yarn-text", content, line.text);
 				}
 			}
-			if (p.truncated) content.classList.add("is-truncated");
+			if (p.truncated) content.dataset.more = "1";
 		} else if (hideTitle && !p.image) {
 			el("div", "yarn-card-empty", body, "Empty note");
 		}
