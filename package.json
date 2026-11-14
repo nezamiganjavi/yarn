@@ -1,0 +1,30 @@
+{
+  "name": "jotboard",
+  "version": "0.1.0",
+  "description": "Card-based home view for Obsidian (mobile-first)",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc && node esbuild.config.mjs production",
+    "harness": "node esbuild.config.mjs production --harness"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nezamiganjavi/yarn.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nezamiganjavi/yarn/issues"
+  },
+  "homepage": "https://github.com/nezamiganjavi/yarn#readme",
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "builtin-modules": "^5.5.0",
+    "esbuild": "^0.28.2",
+    "obsidian": "^1.14.4",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}
