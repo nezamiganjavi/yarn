@@ -28,12 +28,14 @@ const CHROME_CLASS = "yarn-chrome-hidden";
 const ICON = "yarn-ball";
 /** A little ball of yarn with a loose thread (drawn on Obsidian's 100×100 icon grid). */
 const ICON_SVG =
-	'<g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">' +
-	'<circle cx="45" cy="45" r="34"/>' +
-	'<path d="M16 61 Q 40 30 71 23"/>' +
-	'<path d="M26 73 Q 52 46 78 37"/>' +
-	'<path d="M29 15 Q 55 34 67 71"/>' +
-	'<path d="M48 79 C 60 96, 74 80, 92 90"/></g>';
+	'<g fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">' +
+	'<circle cx="55" cy="45" r="34"/>' +
+	// three long wraps sweeping across the ball
+	'<path d="M33 19 Q 50 50 88 53"/><path d="M24 31 Q 42 60 84 63"/><path d="M21 44 Q 36 68 76 72"/>' +
+	// shorter wraps crossing behind them
+	'<path d="M57 11 Q 56 26 45 35"/><path d="M73 16 Q 70 33 55 43"/><path d="M84.5 28 Q 80 42 67 48.7"/>' +
+	// the loose end, curling away
+	'<path d="M27 65 C 15 65 9 74 12 81 C 15 88 24 88 36 88"/></g>';
 /** Google Keep colour names (as written by the Keep importer) → Yarn palette. */
 const KEEP_COLORS: Record<string, string> = {
 	red: "coral",
