@@ -5,6 +5,7 @@ import {
 	MarkdownView,
 	Notice,
 	Platform,
+	addIcon,
 	Plugin,
 	PluginSettingTab,
 	Setting,
@@ -24,6 +25,15 @@ const COLOR_KEY = "card-color";
 const WALLPAPER_KEY = "card-wallpaper";
 const PINNED_KEY = "card-pinned";
 const CHROME_CLASS = "yarn-chrome-hidden";
+const ICON = "yarn-ball";
+/** A little ball of yarn with a loose thread (drawn on Obsidian's 100×100 icon grid). */
+const ICON_SVG =
+	'<g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">' +
+	'<circle cx="45" cy="45" r="34"/>' +
+	'<path d="M16 61 Q 40 30 71 23"/>' +
+	'<path d="M26 73 Q 52 46 78 37"/>' +
+	'<path d="M29 15 Q 55 34 67 71"/>' +
+	'<path d="M48 79 C 60 96, 74 80, 92 90"/></g>';
 /** Google Keep colour names (as written by the Keep importer) → Yarn palette. */
 const KEEP_COLORS: Record<string, string> = {
 	red: "coral",
@@ -83,7 +93,8 @@ export default class YarnPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULTS, await this.loadData());
 
 		this.registerView(VIEW_TYPE, (leaf) => new YarnView(leaf, this));
-		this.addRibbonIcon("layout-grid", "Open Yarn", () => void this.activate(true));
+		addIcon(ICON, ICON_SVG);
+		this.addRibbonIcon(ICON, "Open Yarn", () => void this.activate(true));
 		this.addCommand({ id: "open", name: "Open board", callback: () => void this.activate(true) });
 		this.addCommand({ id: "new-note", name: "New note", callback: () => void this.createNote() });
 		this.addCommand({
@@ -409,10 +420,10 @@ class YarnView extends ItemView {
 		return VIEW_TYPE;
 	}
 	getDisplayText(): string {
-		return "Notes";
+		return "Yarn";
 	}
 	getIcon(): string {
-		return "layout-grid";
+		return ICON;
 	}
 
 	getState(): Record<string, unknown> {

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-yarn",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Card-based home view for Obsidian (mobile-first)",
   "main": "main.js",
   "scripts": {
