@@ -72,9 +72,14 @@ const log = (msg: string) => ((document.getElementById("log") as HTMLElement).te
 
 const host: BoardHost = {
 	listNotes: () => notes.slice(),
-	read: async (id) => bodies.get(id) ?? "",
+	read: async (id) => {
+		// ?slow=ms simulates a phone's slower file reads.
+		const slow = Number(params.get("slow") ?? 0);
+		if (slow) await new Promise((r) => setTimeout(r, slow));
+		return bodies.get(id) ?? "";
+	},
 	getStyle: (id) => styles.get(id) ?? {},
-	tagLabel: (t) => (t.toLowerCase() === "characters/lalka" ? "A Portrait of Lalka by Milād" : t),
+	tagLabel: (t) => (t.toLowerCase() === "characters/lalka" ? "A Portrait of Lalka by Milād" : t.toLowerCase() === "forms" ? "Entropic Forms, or The Story of Alice" : t),
 	getTags: (id) => [...new Set((bodies.get(id) ?? "").match(/#[A-Za-z][\w/-]*/g) ?? [])].map((t) => t.slice(1)),
 	setStyle: async (id, patch) => void styles.set(id, { ...styles.get(id), ...patch }),
 	resolveImage: () => null,
@@ -105,6 +110,8 @@ const host: BoardHost = {
 };
 
 const root = document.getElementById("app") as HTMLElement;
+// ?hidden=1 builds the board while its container is hidden (as can happen while Obsidian starts).
+if (params.get("hidden")) root.style.display = "none";
 let board = new Board(root, host);
 (window as any).board = board;
 (window as any).remount = () => {

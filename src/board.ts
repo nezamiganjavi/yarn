@@ -130,7 +130,14 @@ export class Board {
 	private scrubJump: number | undefined;
 	private query = "";
 	private loading = false;
+	/** Bumped only when the columns are rebuilt; in-flight renders from an older layout stop. */
 	private generation = 0;
+	/** Bumped per filter/search run, so a slow search can tell it has been superseded. */
+	private filterRun = 0;
+	/** Width the cards were last laid out at (0 = the board was hidden, nothing measurable). */
+	private lastWidth = -1;
+	/** State to restore once the board becomes visible, if it was built while hidden. */
+	private deferred: BoardState | null = null;
 	private observer: IntersectionObserver | null = null;
 	private resizeObs: ResizeObserver | null = null;
 	private colCount = 0;
@@ -169,6 +176,7 @@ export class Board {
 			this.query = state.query;
 			this.updateClear();
 		}
+		if (this.hidden()) this.deferred = state;
 		await this.refresh();
 		const idx = state.anchor ? this.shown.findIndex((n) => n.id === state.anchor) : -1;
 		if (idx >= this.pinnedCount) {
@@ -183,6 +191,11 @@ export class Board {
 			}
 			this.scroller.scrollTop = state.scroll;
 		}
+	}
+
+	/** True while the board has no size (its tab is hidden): cards can't be measured or balanced. */
+	private hidden(): boolean {
+		return this.scroller.clientWidth === 0;
 	}
 
 	/** Re-read the note list (after vault changes) while keeping the scroll position. */
@@ -339,7 +352,18 @@ export class Board {
 		this.scroller.addEventListener("scroll", () => this.onScroll(), { passive: true });
 
 		this.resizeObs = new ResizeObserver(() => {
-			this.relayout(false);
+			const w = this.scroller.clientWidth;
+			if (w === 0) return; // hidden: wait until there is something to measure
+			if (this.deferred) {
+				// Built while hidden (e.g. during Obsidian's startup): lay out for real now.
+				const st = this.deferred;
+				this.deferred = null;
+				this.shownSig = "";
+				void this.restore(st);
+			} else if (w !== this.lastWidth) {
+				// Width changed: text wraps differently, so cut-offs and columns are re-measured.
+				this.relayout(true);
+			}
 			this.updateInsets();
 		});
 		this.resizeObs.observe(this.scroller);
@@ -547,6 +571,7 @@ export class Board {
 	private async resetColumns(): Promise<void> {
 		this.generation++;
 		this.loading = false;
+		this.lastWidth = this.scroller.clientWidth;
 		this.start = this.rendered = this.pinnedCount;
 		this.colCount = this.wantedColumns();
 		this.columnsEl.replaceChildren();
@@ -588,7 +613,7 @@ export class Board {
 
 	/** Returns true if the board was rebuilt. With an anchor, it re-centres on that note. */
 	private async applyFilter(renderCount: number, anchor: { id: string; offset: number } | null = null): Promise<boolean> {
-		const gen = ++this.generation;
+		const run = ++this.filterRun;
 		const q = this.query.trim().toLowerCase();
 		if (!q) {
 			this.shown = this.all;
@@ -600,7 +625,7 @@ export class Board {
 				this.setStatus(`Searching ${this.all.length} notes…`);
 				for (let i = 0; i < missing.length; i += 40) {
 					await Promise.all(missing.slice(i, i + 40).map((n) => this.previewFor(n)));
-					if (gen !== this.generation) return false; // a newer search started
+					if (run !== this.filterRun) return false; // a newer search started
 				}
 			}
 			this.shown = this.all.filter((n) => {
@@ -625,7 +650,7 @@ export class Board {
 				});
 			});
 		}
-		if (gen !== this.generation) return false;
+		if (run !== this.filterRun) return false;
 		// Pinned notes first, in their usual order.
 		const pinned = this.shown.filter((n) => this.styleOf(n.id).pinned);
 		this.pinnedIds = new Set(pinned.map((n) => n.id));
@@ -633,7 +658,8 @@ export class Board {
 		if (pinned.length) this.shown = pinned.concat(this.shown.filter((n) => !this.pinnedIds.has(n.id)));
 		// Nothing moved (e.g. only a colour or property changed): repaint in place instead of rebuilding.
 		const sig = `${this.host.layout}|${this.wantedColumns()}|${pinned.length}|` + this.shown.map((n) => n.id + ":" + n.mtime).join("|");
-		if (sig === this.shownSig && this.rendered > 0) {
+		// (This must not cancel a batch that is still loading, or the board would stay empty.)
+		if (sig === this.shownSig && this.columnsEl.querySelector(".yarn-card")) {
 			this.restyle();
 			return false;
 		}
@@ -644,7 +670,9 @@ export class Board {
 			for (const id of this.cards.keys()) if (!ids.has(id)) this.cards.delete(id);
 		}
 		await this.resetColumns();
+		const layout = this.generation;
 		await this.renderPinned();
+		if (layout !== this.generation) return true; // a newer rebuild took over
 		const idx = anchor ? this.shown.findIndex((n) => n.id === anchor.id) : -1;
 		if (idx >= this.pinnedCount) await this.jumpTo(idx, anchor!.offset);
 		else await this.renderUpTo(renderCount);
@@ -675,7 +703,7 @@ export class Board {
 	}
 
 	private async renderMore(max = BATCH): Promise<void> {
-		if (this.loading || this.rendered >= this.shown.length) return;
+		if (this.loading || this.rendered >= this.shown.length || this.hidden()) return;
 		this.loading = true;
 		const gen = this.generation;
 		try {
@@ -708,7 +736,7 @@ export class Board {
 
 	/** Pinned notes are few, so they are always rendered in full. */
 	private async renderPinned(): Promise<void> {
-		if (!this.pinnedCount) return;
+		if (!this.pinnedCount || this.hidden()) return;
 		const gen = this.generation;
 		const slice = this.shown.slice(0, this.pinnedCount);
 		const previews = await Promise.all(slice.map((n) => this.previewFor(n)));
@@ -732,7 +760,7 @@ export class Board {
 	 * scroll position moves by exactly that amount, so nothing on screen shifts.
 	 */
 	async renderAbove(): Promise<void> {
-		if (this.loading || this.start <= this.pinnedCount || !this.columns.length) return;
+		if (this.loading || this.start <= this.pinnedCount || !this.columns.length || this.hidden()) return;
 		this.loading = true;
 		const gen = this.generation;
 		try {

@@ -720,6 +720,9 @@ body.yarn-chrome-hidden .yarn-root .yarn-header {
 }
 
 .yarn-root .yarn-tag {
+	/* Obsidian buttons are centred flex boxes, which clips long text on both sides. */
+	display: block;
+	text-align: left;
 	flex: none;
 	min-width: 0;
 	max-width: 100%;
