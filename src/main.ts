@@ -62,6 +62,7 @@ interface YarnSettings {
 	previewLines: number;
 	scrubber: boolean;
 	overflow: "ellipsis" | "fade" | "none";
+	chipOverflow: "fade" | "ellipsis";
 	layout: "grid" | "list";
 	fabColor: string;
 	/** Lines of "tag = Display name". */
@@ -78,6 +79,7 @@ const DEFAULTS: YarnSettings = {
 	previewLines: 10,
 	scrubber: true,
 	overflow: "ellipsis",
+	chipOverflow: "fade",
 	layout: "grid",
 	fabColor: "",
 	tagNames: "",
@@ -472,6 +474,9 @@ class YarnView extends ItemView {
 			get previewLines() {
 				return p.settings.previewLines;
 			},
+			get chipOverflow() {
+				return p.settings.chipOverflow;
+			},
 			get overflow() {
 				return p.settings.overflow;
 			},
@@ -662,6 +667,20 @@ class YarnSettingTab extends PluginSettingTab {
 					await save(false);
 					this.plugin.forEachView((view) => view.board?.updateScrubber());
 				}),
+			);
+
+		new Setting(containerEl)
+			.setName("Long label chips")
+			.setDesc("How a label that is too long for its card ends.")
+			.addDropdown((d) =>
+				d
+					.addOptions({ fade: "Fade out", ellipsis: "Three dots …" })
+					.setValue(s.chipOverflow)
+					.onChange(async (v) => {
+						s.chipOverflow = v as YarnSettings["chipOverflow"];
+						await save(false);
+						this.plugin.forEachView((view) => view.board?.retag());
+					}),
 			);
 
 		new Setting(containerEl)

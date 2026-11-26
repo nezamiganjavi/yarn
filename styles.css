@@ -1023,3 +1023,15 @@ body.yarn-chrome-hidden .yarn-root .yarn-header {
 .yarn-root.is-scrubbing .yarn-card[data-month] {
 	box-shadow: 0 0 0 2px var(--interactive-accent);
 }
+
+/* Long label chips: fade out at the card's edge instead of ending in "…". */
+.yarn-root.yarn-chips-fade .yarn-tag.is-long {
+	flex: none;
+	max-width: none;
+	text-overflow: clip;
+}
+
+.yarn-root.yarn-chips-fade .yarn-card-tags {
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+	mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}

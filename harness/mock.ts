@@ -94,6 +94,7 @@ const host: BoardHost = {
 	},
 	previewLines: Number(params.get("lines") ?? 10),
 	sortKind: "date",
+	chipOverflow: (params.get("chips") as "fade") || "fade",
 	scrubber: true,
 	overflow: (params.get("overflow") as "fade") || "ellipsis",
 	fabColor: params.get("fab") ?? "",

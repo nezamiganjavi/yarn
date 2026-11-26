@@ -79,6 +79,7 @@ If your vault syncs from a computer (Syncthing, Obsidian Sync with plugin syncin
 - **Card font**: your phone's system font (the default) or Obsidian's interface font.
 - **Preview lines**: how much of each note appears on its card.
 - **Long note indicator**: end long previews with "…" (the default), a fade, or nothing. Previews always stop at a whole line.
+- **Long label chips**: a label too long for its card fades out at the edge (the default) or ends in "…".
 - **+ button colour**: nine presets plus the theme accent, or any colour from the picker. The + sign switches between white and dark automatically so it stays readable.
 
 ## Development

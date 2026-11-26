@@ -51,6 +51,8 @@ export interface BoardHost {
 	scrubber?: boolean;
 	/** How a card shows that its note continues: "…", a fade, or nothing. */
 	overflow: "ellipsis" | "fade" | "none";
+	/** How a label chip that is too long for its card ends: faded out, or with "…". */
+	chipOverflow?: "fade" | "ellipsis";
 	layout: "grid" | "list";
 	/** Hex colour for the + button; empty uses the theme accent. */
 	fabColor: string;
@@ -348,6 +350,7 @@ export class Board {
 		);
 		this.observer.observe(this.sentinel);
 
+		this.root.classList.toggle("yarn-chips-fade", this.host.chipOverflow !== "ellipsis");
 		this.buildScrubber();
 		this.scroller.addEventListener("scroll", () => this.onScroll(), { passive: true });
 
@@ -1100,6 +1103,7 @@ export class Board {
 
 	/** Re-draw every card's tag chips (e.g. after label names change). */
 	retag(): void {
+		this.root.classList.toggle("yarn-chips-fade", this.host.chipOverflow !== "ellipsis");
 		this.columnsEl.querySelectorAll<HTMLElement>(".yarn-card").forEach((c) => this.renderTags(c, c.dataset.id!));
 	}
 
