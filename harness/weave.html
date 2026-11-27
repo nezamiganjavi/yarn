@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yarn weave harness</title>
+<link rel="stylesheet" href="../styles.css">
+<style>
+  /* Approximation of Obsidian's default theme variables */
+  body.theme-light { --background-primary:#ffffff; --background-secondary:#f2f3f5; --background-modifier-border:#e0e0e0; --background-modifier-hover:rgba(0,0,0,.06); --text-normal:#222; --text-muted:#5c5c5c; --text-on-accent:#fff; --interactive-accent:#7c5bed; --text-error:#e93147; }
+  body.theme-dark { --background-primary:#1e1e1e; --background-secondary:#262626; --background-modifier-border:#363636; --background-modifier-hover:rgba(255,255,255,.07); --text-normal:#dadada; --text-muted:#a3a3a3; --text-on-accent:#fff; --interactive-accent:#8a6cf0; --text-error:#fb464c; }
+  body { margin:0; background:var(--background-primary); --font-interface: -apple-system, "Segoe UI", Roboto, sans-serif; font-family: var(--font-interface); font-size:15px; }
+  #app { height:100vh; }
+  button { font: inherit; display: inline-flex; align-items: center; justify-content: center; } /* like Obsidian buttons */
+  .svg-icon { width: 20px; height: 20px; }
+  #log { position:fixed; left:8px; bottom:4px; font-size:11px; opacity:.5; color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="log"></div>
+<script src="weave.js"></script>
+</body>
+</html>

@@ -45,6 +45,48 @@ card-pinned: true
 
 Changing a colour keeps the note's "last modified" time, so the note doesn't jump to the top of the board.
 
+## Weaves
+
+A weave arranges the notes that one note links to. It is meant for a workspace note, such as a story note that links to all of its scene notes.
+
+- **Open one.** Run **Yarn: Weave this note** from the command palette, or choose **Open as weave** in a note's file menu. On a phone the weave replaces the note and Back returns to it; on desktop it opens in a new tab.
+- **Scenes and the thread.** Each scene has a middle lane, the thread, that holds its beats in order. Drag a note to move it. On a touch screen, drag by the dotted grip on a card's left edge, or press and hold the card.
+- **Side lanes.** Drop a note left or right of a beat to tie it to that beat. It travels with the beat. Lanes can be added, removed and renamed under **Options**.
+- **Loose strip and basket.** Each scene has a strip for notes that belong to no particular beat. The basket at the top holds notes that are not placed yet.
+- **Reading.** Cards show the start of each note. Tap a card to read more, and use **Open note** on an opened card to go to the note.
+- **Looks.** Yarn, Indigo, Margin, Snap and Quiet, under **Options** or in settings.
+
+### How a weave follows its note
+
+The weave always holds exactly the notes its note links to:
+
+- Add a `[[link]]` to the note and that note appears in the weave's basket.
+- Remove a link from the note and that note leaves the weave.
+- Links inside code blocks, embeds (`![[...]]`) and links to files that are not notes are ignored.
+
+The first time you weave a note, Yarn follows the shape the note already has. Links under a heading, or on a line like `Scene 2: [[A]], [[B]]`, become that scene's thread in the same order. Other links go to the basket.
+
+### Where a weave is stored
+
+The arrangement is saved inside the note itself, in a `weave` code block at the end, so it syncs with the note:
+
+````
+```weave
+left: Keep in mind
+thread: Thread
+right: Texture
+~ [[A note still in the basket]]
+
+## The second date
+- [[He arrives early]]
+    - (Keep in mind) [[He is still lying to himself]]
+- [[Lalka's eyes]]
+~ [[Rule - no interior monologue]]
+```
+````
+
+Lines starting with `-` are beats, indented lines are side notes with their lane in brackets, and lines starting with `~` are loose notes. In reading view and live preview the block shows as an **Open weave** card. You can also type an empty `weave` block into a note yourself to give it a weave.
+
 ## Install with auto-updates (BRAT)
 
 1. In Obsidian, install **BRAT** from Community plugins and enable it.
@@ -81,6 +123,7 @@ If your vault syncs from a computer (Syncthing, Obsidian Sync with plugin syncin
 - **Long note indicator**: end long previews with "…" (the default), a fade, or nothing. Previews always stop at a whole line.
 - **Long label chips**: a label too long for its card fades out at the edge (the default) or ends in "…".
 - **+ button colour**: nine presets plus the theme accent, or any colour from the picker. The + sign switches between white and dark automatically so it stays readable.
+- **Weaves**: the look, the default lanes for new weaves, and where each scene keeps its loose strip.
 
 ## Development
 
@@ -90,4 +133,4 @@ npm run build      # type-check + bundle main.js
 npm run harness    # build the browser test harness, then open harness/index.html
 ```
 
-`harness/index.html` mounts the real board against a mock vault. Use query parameters to change what it shows: `?theme=dark`, `?sheet=1`, `?q=milk`, `?layout=list`, `?count=0`.
+`harness/weave.html` mounts the weave board against a mock note (`?theme=dark`, `?skin=margin`). `harness/index.html` mounts the real board against a mock vault. Use query parameters to change what it shows: `?theme=dark`, `?sheet=1`, `?q=milk`, `?layout=list`, `?count=0`.

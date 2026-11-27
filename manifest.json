@@ -1,7 +1,7 @@
 {
   "id": "yarn",
   "name": "Yarn",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "minAppVersion": "1.7.2",
   "description": "A roomy, card-based home screen for your notes: masonry grid, instant search, a big + button, and per-note colours and wallpapers.",
   "author": "Yarn contributors",

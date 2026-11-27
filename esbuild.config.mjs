@@ -8,6 +8,7 @@ const common = { bundle: true, target: "es2018", logLevel: "info", sourcemap: pr
 
 if (harness) {
   await esbuild.build({ ...common, entryPoints: ["harness/mock.ts"], outfile: "harness/harness.js", format: "iife" });
+  await esbuild.build({ ...common, entryPoints: ["harness/weave-mock.ts"], outfile: "harness/weave.js", format: "iife" });
 } else {
   const ctx = await esbuild.context({
     ...common,

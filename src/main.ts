@@ -14,13 +14,19 @@ import {
 	WorkspaceLeaf,
 	debounce,
 	getAllTags,
+	MarkdownPostProcessorContext,
 	normalizePath,
 	setIcon,
 } from "obsidian";
 import { Board, BoardHost, BoardState, NoteRef, NoteStyle } from "./board";
 import { FAB_PRESETS } from "./palette";
+import { buildPreview, isPlaceholderTitle } from "./preview";
+import { WEAVE_SKINS, Weave, WeaveHost, WeaveUi } from "./weave";
+import { WeaveModel, allItems, extractLinks, findBlock, parseWeave, reconcile, replaceBlock, seedWeave, serializeWeave } from "./weavemodel";
 
 export const VIEW_TYPE = "yarn-view";
+export const WEAVE_VIEW = "yarn-weave";
+const WEAVE_ICON = "waypoints";
 const COLOR_KEY = "card-color";
 const WALLPAPER_KEY = "card-wallpaper";
 const PINNED_KEY = "card-pinned";
@@ -69,6 +75,9 @@ interface YarnSettings {
 	tagNames: string;
 	hideChrome: boolean;
 	cardFont: "system" | "obsidian";
+	weave: WeaveUi;
+	/** Per note path: which scenes are folded and which loose strips are minimized. */
+	weaveFlags: Record<string, Record<string, boolean>>;
 }
 
 const DEFAULTS: YarnSettings = {
@@ -85,6 +94,8 @@ const DEFAULTS: YarnSettings = {
 	tagNames: "",
 	hideChrome: false,
 	cardFont: "system",
+	weave: { skin: "yarn", density: "peek", loosePos: "bottom", looseDefaultMin: false, defLeft: "Keep in mind", defThread: "Thread", defRight: "Texture" },
+	weaveFlags: {},
 };
 
 
@@ -95,6 +106,8 @@ export default class YarnPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.settings = Object.assign({}, DEFAULTS, await this.loadData());
+		this.settings.weave = Object.assign({}, DEFAULTS.weave, this.settings.weave);
+		this.settings.weaveFlags = this.settings.weaveFlags ?? {};
 
 		this.registerView(VIEW_TYPE, (leaf) => new YarnView(leaf, this));
 		addIcon(ICON, ICON_SVG);
@@ -110,6 +123,25 @@ export default class YarnPlugin extends Plugin {
 			},
 		});
 		this.addSettingTab(new YarnSettingTab(this.app, this));
+
+		// Weaves: arrange the notes a note links to.
+		this.registerView(WEAVE_VIEW, (leaf) => new WeaveView(leaf, this));
+		this.addCommand({
+			id: "weave-note",
+			name: "Weave this note",
+			checkCallback: (checking) => {
+				const f = this.app.workspace.getActiveFile();
+				if (!f || f.extension !== "md") return false;
+				if (!checking) void this.openWeave(f);
+				return true;
+			},
+		});
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, f) => {
+				if (f instanceof TFile && f.extension === "md") menu.addItem((i) => i.setTitle("Open as weave").setIcon(WEAVE_ICON).onClick(() => void this.openWeave(f)));
+			}),
+		);
+		this.registerMarkdownCodeBlockProcessor("weave", (src, elm, ctx) => this.renderWeaveEmbed(src, elm, ctx));
 		this.addCommand({
 			id: "copy-layout-report",
 			name: "Copy layout report (for troubleshooting)",
@@ -125,6 +157,22 @@ export default class YarnPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("delete", refresh));
 			this.registerEvent(this.app.vault.on("rename", refresh));
 			this.registerEvent(this.app.vault.on("modify", refresh));
+			const weaveTexts = debounce(() => this.forEachWeave((v) => v.weave?.refreshTexts()), 1500, true);
+			this.registerEvent(
+				this.app.vault.on("modify", (f) => {
+					let own = false;
+					this.forEachWeave((v) => {
+						if (v.file === f) {
+							own = true;
+							v.sourceChanged();
+						}
+					});
+					if (!own) weaveTexts();
+				}),
+			);
+			this.registerEvent(this.app.vault.on("delete", (f) => this.forEachWeave((v) => v.file === f && v.leaf.detach())));
+			this.registerEvent(this.app.vault.on("rename", (f, old) => this.forEachWeave((v) => v.file === f && v.renamed(old))));
+			this.registerEvent(this.app.workspace.on("css-change", () => this.forEachWeave((v) => v.weave?.restyle())));
 			this.registerEvent(this.app.metadataCache.on("changed", (file) => this.forEachView((v) => v.board?.styleChanged(file.path))));
 			this.registerEvent(this.app.workspace.on("css-change", () => this.forEachView((v) => v.board?.restyle())));
 			this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.updateChrome()));
@@ -232,6 +280,45 @@ export default class YarnPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
 			if (leaf.view instanceof YarnView) fn(leaf.view);
 		}
+	}
+
+	forEachWeave(fn: (v: WeaveView) => void): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(WEAVE_VIEW)) {
+			if (leaf.view instanceof WeaveView) fn(leaf.view);
+		}
+	}
+
+	/** Open the weave of a note: on a phone in place of the note (Back returns to it), on desktop in a new tab. */
+	async openWeave(file: TFile): Promise<void> {
+		const ws = this.app.workspace;
+		let leaf: WorkspaceLeaf | null = null;
+		this.forEachWeave((v) => {
+			if (v.file === file) leaf = v.leaf;
+		});
+		if (!leaf) {
+			leaf = Platform.isMobile ? ws.getLeaf(false) : ws.getLeaf("tab");
+			await leaf.setViewState({ type: WEAVE_VIEW, active: true, state: { file: file.path } });
+		}
+		await ws.revealLeaf(leaf);
+		ws.setActiveLeaf(leaf, { focus: true });
+	}
+
+	/** What a ```weave block shows inside its note: a card that opens the board. */
+	private renderWeaveEmbed(src: string, elm: HTMLElement, ctx: MarkdownPostProcessorContext): void {
+		const model = parseWeave(src, { left: "", thread: "", right: "" });
+		const notes = allItems(model).length;
+		const card = elm.createDiv({ cls: "yarn-weave-embed" });
+		setIcon(card.createDiv({ cls: "yarn-weave-embed-icon" }), WEAVE_ICON);
+		const text = card.createDiv();
+		text.createDiv({ cls: "yarn-weave-embed-title", text: "Open weave" });
+		text.createDiv({
+			cls: "yarn-weave-embed-sub",
+			text: src.trim() ? `${notes} note${notes === 1 ? "" : "s"} in ${model.scenes.length} scene${model.scenes.length === 1 ? "" : "s"}` : "Arranges the notes this note links to",
+		});
+		card.addEventListener("click", () => {
+			const f = this.file(ctx.sourcePath);
+			if (f) void this.openWeave(f);
+		});
 	}
 
 	/** Show the board: reuse an existing one, else take over the current tab (Back returns to what was there). */
@@ -532,6 +619,154 @@ class YarnView extends ItemView {
 	}
 }
 
+/** The board for one note's weave. The arrangement is kept in a ```weave block inside that note. */
+class WeaveView extends ItemView {
+	plugin: YarnPlugin;
+	weave: Weave | null = null;
+	file: TFile | null = null;
+	navigation = true;
+	/** What we last wrote to (or read from) the block, to tell our own saves from outside edits. */
+	private lastBody = "";
+	private saveTimer = 0;
+	private pendingModel: WeaveModel | null = null;
+	private reloadTimer = 0;
+
+	constructor(leaf: WorkspaceLeaf, plugin: YarnPlugin) {
+		super(leaf);
+		this.plugin = plugin;
+	}
+
+	getViewType(): string {
+		return WEAVE_VIEW;
+	}
+	getDisplayText(): string {
+		return this.file ? "Weave: " + this.file.basename : "Weave";
+	}
+	getIcon(): string {
+		return WEAVE_ICON;
+	}
+	getState(): Record<string, unknown> {
+		return { ...super.getState(), file: this.file?.path };
+	}
+	async setState(state: unknown, result: ViewStateResult): Promise<void> {
+		const path = (state as { file?: string } | null)?.file;
+		const f = path ? this.plugin.file(path) : null;
+		if (f && f !== this.file) {
+			await this.flush();
+			this.file = f;
+			await this.loadWeave();
+		}
+		await super.setState(state, result);
+	}
+	async onClose(): Promise<void> {
+		await this.flush();
+		window.clearTimeout(this.reloadTimer);
+		this.weave?.destroy();
+		this.weave = null;
+	}
+
+	private get defaults() {
+		const w = this.plugin.settings.weave;
+		return { left: w.defLeft, thread: w.defThread, right: w.defRight };
+	}
+	private dest(link: string): TFile | null {
+		return this.file ? this.app.metadataCache.getFirstLinkpathDest(link, this.file.path) : null;
+	}
+	/** Two links are the same note if they resolve to the same file. */
+	private keyOf = (link: string): string => this.dest(link)?.path ?? "?" + link.toLowerCase();
+
+	/** Read the note and bring its weave in step with its links. Returns the model and whether the block needs rewriting. */
+	private read(text: string): { model: WeaveModel; dirty: boolean } {
+		// only notes can be woven: links to images, PDFs and the like are left out
+		const links = extractLinks(text).filter((l) => {
+			const d = this.dest(l.link);
+			return !d || d.extension === "md";
+		});
+		const block = findBlock(text);
+		if (!block || !block.body.trim()) return { model: seedWeave(text, links, this.keyOf, this.defaults), dirty: true };
+		const model = parseWeave(block.body, this.defaults);
+		const dirty = reconcile(model, links, this.keyOf);
+		this.lastBody = block.body;
+		return { model, dirty };
+	}
+
+	private async loadWeave(): Promise<void> {
+		const file = this.file;
+		if (!file) return;
+		const p = this.plugin;
+		const { model, dirty } = this.read(await this.app.vault.read(file));
+		const host: WeaveHost = {
+			title: file.basename,
+			info: (link) => {
+				const d = this.dest(link);
+				const name = d ? d.basename : link.split("/").pop() || link;
+				return { title: d && isPlaceholderTitle(name) ? "" : name, missing: !d };
+			},
+			read: async (link) => {
+				const d = this.dest(link);
+				if (!d) return "";
+				const pv = buildPreview(await this.app.vault.cachedRead(d), d.basename, 12);
+				return pv.lines.map((l) => (l.kind === "bullet" ? "• " : l.kind === "task" ? (l.done ? "☑ " : "☐ ") : "") + l.text).join("\n") + (pv.truncated ? " …" : "");
+			},
+			open: (link) => void this.app.workspace.openLinkText(link, file.path, !Platform.isMobile),
+			openSource: () => void this.app.workspace.getLeaf(Platform.isMobile ? false : "tab").openFile(file, { active: true }),
+			save: (m) => this.queueSave(m),
+			ui: p.settings.weave,
+			flags: (p.settings.weaveFlags[file.path] = p.settings.weaveFlags[file.path] ?? {}),
+			saveUi: () => void p.saveSettings(),
+			isDark: () => document.body.classList.contains("theme-dark"),
+		};
+		this.weave?.destroy();
+		this.contentEl.empty();
+		this.weave = new Weave(this.contentEl, host, model);
+		this.weave.setBottomInset(p.bottomInset());
+		if (dirty) this.queueSave(model);
+		// refresh the tab title
+		(this.leaf as unknown as { updateHeader?: () => void }).updateHeader?.();
+	}
+
+	private queueSave(model: WeaveModel): void {
+		this.pendingModel = model;
+		window.clearTimeout(this.saveTimer);
+		this.saveTimer = window.setTimeout(() => void this.flush(), 400);
+	}
+	private async flush(): Promise<void> {
+		window.clearTimeout(this.saveTimer);
+		const model = this.pendingModel, file = this.file;
+		this.pendingModel = null;
+		if (!model || !file) return;
+		const body = serializeWeave(model);
+		if (body === this.lastBody) return;
+		this.lastBody = body;
+		await this.app.vault.process(file, (text) => replaceBlock(text, body));
+	}
+
+	/** The note was modified: by us (ignored), or by the user or a sync (links may have come or gone). */
+	sourceChanged(): void {
+		window.clearTimeout(this.reloadTimer);
+		this.reloadTimer = window.setTimeout(() => void this.reload(), 500);
+	}
+	private async reload(): Promise<void> {
+		const file = this.file, weave = this.weave;
+		if (!file || !weave) return;
+		if (weave.busy || this.pendingModel) return this.sourceChanged();
+		const before = serializeWeave(weave.model);
+		const { model, dirty } = this.read(await this.app.vault.read(file));
+		if (serializeWeave(model) === before) return;
+		weave.setModel(model);
+		if (dirty) this.queueSave(model);
+	}
+	renamed(oldPath: string): void {
+		const flags = this.plugin.settings.weaveFlags;
+		if (this.file && flags[oldPath]) {
+			flags[this.file.path] = flags[oldPath];
+			delete flags[oldPath];
+			void this.plugin.saveSettings();
+		}
+		void this.loadWeave();
+	}
+}
+
 class ImagePicker extends FuzzySuggestModal<TFile> {
 	private resolve: (v: string | null) => void = () => {};
 	private chosen = false;
@@ -723,6 +958,46 @@ class YarnSettingTab extends PluginSettingTab {
 			});
 		});
 		fabSetting.controlEl.addClass("yarn-fab-setting");
+
+		new Setting(containerEl).setName("Weaves").setHeading();
+		const w = s.weave;
+		const saveWeave = async () => {
+			await this.plugin.saveSettings();
+			this.plugin.forEachWeave((v) => v.weave?.restyle());
+		};
+		new Setting(containerEl)
+			.setName("Look")
+			.setDesc("How weaves are drawn. You can also switch this from Options inside a weave.")
+			.addDropdown((d) =>
+				d
+					.addOptions(WEAVE_SKINS.reduce<Record<string, string>>((o, k) => ((o[k.id] = k.name), o), {}))
+					.setValue(w.skin)
+					.onChange(async (v) => ((w.skin = v), await saveWeave())),
+			);
+		new Setting(containerEl)
+			.setName("Default lanes left of the thread")
+			.setDesc("For new weaves. Comma separated; leave empty for none.")
+			.addText((t) => t.setValue(w.defLeft).onChange(async (v) => ((w.defLeft = v), await saveWeave())));
+		new Setting(containerEl)
+			.setName("Default name of the middle lane")
+			.addText((t) => t.setPlaceholder("Thread").setValue(w.defThread).onChange(async (v) => ((w.defThread = v), await saveWeave())));
+		new Setting(containerEl)
+			.setName("Default lanes right of the thread")
+			.setDesc("For new weaves. Comma separated; leave empty for none.")
+			.addText((t) => t.setValue(w.defRight).onChange(async (v) => ((w.defRight = v), await saveWeave())));
+		new Setting(containerEl)
+			.setName("Loose strip")
+			.setDesc("Where each scene keeps its loose notes.")
+			.addDropdown((d) =>
+				d
+					.addOptions({ bottom: "Below the thread", top: "Above the thread" })
+					.setValue(w.loosePos)
+					.onChange(async (v) => ((w.loosePos = v as WeaveUi["loosePos"]), await saveWeave())),
+			);
+		new Setting(containerEl)
+			.setName("Loose strips start minimized")
+			.setDesc("Each scene still remembers it once you open or minimize its strip.")
+			.addToggle((t) => t.setValue(w.looseDefaultMin).onChange(async (v) => ((w.looseDefaultMin = v), await saveWeave())));
 
 		containerEl.createEl("p", {
 			cls: "setting-item-description",
